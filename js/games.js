@@ -22,7 +22,7 @@ window.SITE = {
     youtube: "https://www.youtube.com/@Future_Flynn5",
     twitch: "",
     tiktok: "",
-    x: "",
+    x: "https://x.com/FutureFlynn5",
     instagram: "",
     discord: "https://discord.gg/dMNGvcbCp",
     itch: "",
