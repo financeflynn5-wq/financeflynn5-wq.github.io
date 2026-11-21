@@ -15,6 +15,8 @@
 window.SITE = {
   name: "Flynn's Games",
   tagline: "Games I build live on stream. Play them free in your browser.",
+  // The big spotlight card at the top of the home page (a game id from the list below)
+  featured: "steelbind",
   // Paste your links here. Any left empty are hidden.
   links: {
     youtube: "https://www.youtube.com/@Future_Flynn5",
