@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flynn's Games</title>
+  <meta name="description" content="Games Flynn builds live on stream. Play them free in your browser.">
+  <meta property="og:title" content="Flynn's Games">
+  <meta property="og:description" content="Games I build live on stream. Play them free in your browser.">
+  <meta property="og:image" content="img/steelbind.jpg">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23ffcc33'/><path d='M12 9v14l11-7z' fill='%231a1405'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-page="home">
+  <header class="topbar" id="topbar"></header>
+
+  <section class="hero">
+    <div class="wrap">
+      <div>
+      <h1><span>Flynn's</span><br>Games</h1>
+      <p id="site-tagline"></p>
+      <div class="btn-row" id="hero-links">
+        <a class="btn primary" href="#play">Play now</a>
+      </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <img src="img/steelbind.jpg" alt="">
+        <img src="img/fta6.jpg" alt="">
+      </div>
+    </div>
+  </section>
+
+  <main class="wrap">
+    <section class="section" id="play">
+      <div class="section-head"><h2>Play now</h2><span class="count" id="play-count"></span></div>
+      <div class="grid" id="play-grid"></div>
+    </section>
+
+    <section class="section" id="dev">
+      <div class="section-head"><h2>In development</h2><span class="count" id="dev-count"></span></div>
+      <div class="grid small" id="dev-grid"></div>
+    </section>
+  </main>
+
+  <footer id="footer"></footer>
+
+  <script src="js/games.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
