@@ -17,7 +17,7 @@ window.SITE = {
   tagline: "Games I build live on stream. Play them free in your browser.",
   // Paste your links here. Any left empty are hidden.
   links: {
-    youtube: "",
+    youtube: "https://www.youtube.com/@Future_Flynn5",
     twitch: "",
     itch: "",
     discord: "",
