@@ -21,8 +21,11 @@ window.SITE = {
   links: {
     youtube: "https://www.youtube.com/@Future_Flynn5",
     twitch: "",
+    tiktok: "",
+    x: "",
+    instagram: "",
+    discord: "https://discord.gg/dMNGvcbCp",
     itch: "",
-    discord: "",
   },
 };
 
