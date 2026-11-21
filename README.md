@@ -29,3 +29,7 @@ Then commit and push. GitHub Pages updates in about a minute.
 ```
 npx serve .
 ```
+
+## Updates not showing?
+
+Browsers keep the site's files for up to 10 minutes. After editing `games.js`, `main.js` or `style.css`, raise the `?v=` number on their links in `index.html` and `game.html` (for example `?v=2` to `?v=3`) so visitors get the new version right away.
