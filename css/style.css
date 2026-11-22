@@ -87,6 +87,16 @@ img { max-width: 100%; display: block; }
 .nav-links a:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); }
 .nav-links a.yt { color: #fff; background: rgba(255, 50, 60, 0.18); border: 1px solid rgba(255, 70, 80, 0.35); }
 .nav-links a.yt:hover { background: rgba(255, 50, 60, 0.32); }
+.nav-links a.social { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; }
+.nav-links a.social svg { width: 18px; height: 18px; display: block; }
+.nav-links a.s-youtube:hover { color: #ff3d4d; }
+.nav-links a.s-tiktok:hover { color: #25f4ee; }
+.nav-links a.s-x:hover { color: #fff; }
+.nav-links a.s-instagram:hover { color: #ff5fa2; }
+.nav-links a.s-discord:hover { color: #7b87ff; }
+.nav-links a.s-twitch:hover { color: #a970ff; }
+.nav-links a.s-itch:hover { color: #ff5c5c; }
+.nav-links a.social:focus-visible { outline: 2px solid #ffb03a; outline-offset: 2px; }
 
 /* ── Buttons ───────────────────────────────── */
 .btn {
@@ -364,6 +374,9 @@ footer .wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; j
 @media (max-width: 560px) {
   .hero { padding: 48px 0 20px; }
   .topbar .nav-links a.hide-sm { display: none; }
+  .topbar .wrap { gap: 10px; }
+  .topbar .nav-links { flex-wrap: nowrap; gap: 0; }
+  .nav-links a.social { width: 32px; height: 32px; }
   .live-band { padding: 24px 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
