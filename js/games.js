@@ -24,7 +24,7 @@ window.SITE = {
     tiktok: "https://www.tiktok.com/@future.flynn",
     x: "https://x.com/FutureFlynn5",
     instagram: "https://www.instagram.com/future.flynn5/",
-    discord: "https://discord.gg/dMNGvcbCp",
+    discord: "https://discord.gg/CCHXj3mSJc",
     itch: "",
   },
 };
