@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────
 //  Animated space backdrop
 //  Layer 1 (WebGL): stars, nebula, a black hole with a glowing
-//  accretion disk, a ringed planet, and a sun cresting over a
-//  big planet's horizon.
+//  accretion disk, a banded ringed gas giant, a cratered moon, and
+//  a sun cresting over a big ocean planet's horizon.
 //  Layer 2 (2D canvas): meteors, fireballs, and debris spiralling
 //  into the black hole.
 // ─────────────────────────────────────────────────────────────
@@ -61,6 +61,43 @@
   }
   mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 
+  // Accretion disk colour at disk radius R and orbit angle a (angle 0 = right, PI = left).
+  // Fine orbital streaks, hot white inner edge fading to deep red, and Doppler beaming:
+  // the left side is spinning toward us, so it is brighter and bluer.
+  vec3 diskShade(float R, float a, float rs, float inner, float outer){
+    float x = (R - inner)/(outer - inner);
+    if (x <= 0.0 || x >= 1.0) return vec3(0.0);
+    float aa = a - uTime*1.1*pow(inner/R, 1.5);
+    vec2 cs = vec2(cos(aa), sin(aa));
+    float streak = fbm(cs*2.2 + vec2(R/rs*4.5, R/rs*0.9));
+    float fine = noise(cs*6.0 + vec2(R/rs*9.0, 0.0));
+    float rings = 0.82 + 0.18*sin(R/rs*13.0 + streak*5.0);
+    float tex = (0.2 + 1.7*streak*streak)*(0.75 + 0.45*fine)*rings;
+    float temp = pow(1.0 - x, 2.2);
+    float profile = smoothstep(0.0, 0.03, x)*smoothstep(1.0, 0.45, x);
+    vec3 c = mix(vec3(0.7, 0.12, 0.03), vec3(1.0, 0.5, 0.15), smoothstep(0.0, 0.35, temp));
+    c = mix(c, vec3(1.0, 0.93, 0.82), smoothstep(0.35, 0.85, temp));
+    float g = 1.0 - 0.5*cos(a);                     // 0.5 on the receding side, 1.5 approaching
+    float beam = g*g*g;
+    c = mix(c, c*vec3(0.85, 0.95, 1.25), smoothstep(1.1, 1.5, g)*0.6);
+    return c*(0.12 + 2.6*temp)*tex*profile*beam;
+  }
+
+  // crater field: dark bowls with a bright raised rim
+  float craters(vec2 x){
+    vec2 i = floor(x), f = fract(x);
+    float c = 0.0;
+    for (int j = -1; j <= 1; j++) for (int k = -1; k <= 1; k++){
+      vec2 g = vec2(float(j), float(k));
+      vec2 o = vec2(hash(i+g), hash(i+g+7.0));
+      float rad = 0.18 + 0.3*hash(i+g+3.0);
+      float d = length(g + o - f)/rad;
+      float on = step(0.35, hash(i+g+11.0));
+      c += on*(-0.55*smoothstep(1.0, 0.6, d) + 0.45*smoothstep(0.75, 1.0, d)*smoothstep(1.3, 1.0, d));
+    }
+    return c;
+  }
+
   vec3 stars(vec2 uv, float scale, float seed){
     vec2 g = uv*scale; vec2 id = floor(g); vec2 f = fract(g) - 0.5;
     float h = hash(id + seed);
@@ -84,8 +121,8 @@
     vec2 d = p - uBH;
     float r = length(d);
     float rs = uRs;
-    float bend = rs*rs*2.4/max(r, 1e-4);
-    vec2 q = p - normalize(d)*bend*smoothstep(rs*0.8, rs*1.6, r);
+    float bend = rs*rs*3.2/max(r, 1e-4);
+    vec2 q = p - normalize(d)*bend*smoothstep(rs*0.9, rs*1.3, r);
     q = uBH + rot(rs*rs*6.0/max(r*r, 1e-4)*0.05)*(q - uBH);   // a little swirl
     vec2 bgq = q + vec2(0.0, uScroll*0.06);
 
@@ -105,28 +142,41 @@
     col += vec3(0.55, 0.65, 1.0)*pow(fbm(bgq*7.0), 5.0)*band*0.9;   // star dust
 
     // ── black hole ──
+    // A thin disk seen almost edge on. Its far half is bent up over the shadow (and a thin
+    // copy under it), ringed by a sharp photon ring.
     vec2 dd = rot(0.28)*d;
-    vec2 e = vec2(dd.x, dd.y/0.2);
+    float incl = 0.16;
+    float inner = rs*1.6, outer = rs*6.2;
+    vec2 e = vec2(dd.x, dd.y/incl);
     float er = length(e);
-    float inner = rs*1.7, outer = rs*5.5;
-    float diskMask = smoothstep(inner, inner*1.15, er)*smoothstep(outer, outer*0.55, er);
-    float spin = uTime*0.9*pow(inner/max(er, inner), 1.5);
-    vec2 sp = rot(spin)*e;
-    float tex = fbm(sp/rs*1.3 + vec2(0.0, er/rs*0.6)) * (0.85 + 0.15*sin(er/rs*4.0 - uTime*1.5));
-    float heat = pow(clamp(1.0 - (er - inner)/(outer - inner), 0.0, 1.0), 1.4);
-    vec3 diskCol = mix(vec3(0.95, 0.3, 0.08), vec3(1.0, 0.92, 0.75), heat)*(0.25 + 1.5*tex*tex)*diskMask*(0.6 + 2.2*heat);
-    diskCol *= 1.0 + 0.75*(-e.x/max(er, 1e-4));                 // the side coming toward us is brighter
-    float front = step(dd.y, 0.0);
+    float ea = atan(e.y, e.x);
+    vec3 diskDirect = vec3(0.0);
+    if (er < outer*1.05) diskDirect = diskShade(er, ea, rs, inner, outer);
+    float front = smoothstep(0.004*rs, -0.004*rs, dd.y);
 
-    col += diskCol*(1.0 - front)*smoothstep(rs*1.0, rs*1.12, r); // back of the disk, hidden by the shadow
-    col *= smoothstep(rs*0.97, rs*1.06, r);                      // event horizon
-    float halo = exp(-pow((r - rs*1.5)/(rs*0.34), 2.0));
-    float above = smoothstep(-0.3, 0.7, dd.y/max(r, 1e-4));
-    float tex2 = fbm(rot(uTime*0.5)*d/rs*2.2);
-    col += vec3(1.0, 0.6, 0.25)*halo*(0.45 + 1.6*above)*(0.5 + tex2)*1.5*smoothstep(rs*0.97, rs*1.1, r); // lensed far side, bent over the top
-    col += vec3(1.0, 0.88, 0.65)*exp(-pow((r - rs*1.08)/(rs*0.05), 2.0))*2.0;                          // photon ring
-    col += diskCol*front;                                                                              // near side over the shadow
-    col += vec3(1.0, 0.45, 0.15)*exp(-r/rs*0.7)*0.35*step(rs, r);                                      // glow
+    col += diskDirect*(1.0 - front)*smoothstep(rs*1.0, rs*1.04, r);   // far half, peeking above the shadow
+    col *= smoothstep(rs*0.985, rs*1.015, r);                           // event horizon shadow
+
+    // lensed image of the far half of the disk, wrapped over the top and thinner underneath
+    float ang = atan(dd.y, dd.x);
+    float up = sin(ang);
+    float thick = mix(0.45, 1.0, smoothstep(-0.5, 0.4, up));
+    float lr = (r - rs*1.07)/(rs*1.15*thick);
+    if (lr > 0.0 && lr < 1.0){
+      float lensR = inner + lr*lr*(outer - inner)*0.7;
+      float lensA = up >= 0.0 ? ang : -ang;                                // mirror so the bottom copy matches the top
+      vec3 arc = diskShade(lensR, lensA, rs, inner, outer);
+      float fadeOut = smoothstep(1.0, 0.55, lr);
+      col += arc*fadeOut*mix(0.35, 1.0, smoothstep(-0.3, 0.3, up))*0.9;
+    }
+
+    // photon ring: a razor-thin bright circle right at the edge of the shadow
+    float pring = exp(-pow((r - rs*1.035)/(rs*0.014), 2.0));
+    col += vec3(1.0, 0.86, 0.66)*pring*(0.9 + 0.8*smoothstep(0.3, -1.0, cos(ang)))*1.4;
+
+    col += diskDirect*front;                                              // near half, in front of the shadow
+    // faint bloom so it sits in the scene instead of on top of it
+    col += vec3(1.0, 0.5, 0.2)*exp(-max(r - rs, 0.0)/(rs*1.6))*0.09*step(rs, r);
 
     // ── sun and the big planet ──
     vec2 bc = vec2(-0.08*asp, -1.62);
@@ -144,15 +194,40 @@
     col += vec3(0.25, 0.5, 1.0)*atm*(0.18 + 1.6*pow(facing, 10.0));
     col += vec3(1.0, 0.55, 0.25)*atm*pow(facing, 40.0)*1.2;
 
-    // planet surface: night side with a thin lit edge
+    // planet surface: oceans, continents and clouds on the day side, city lights on the night side
     float depth = br - bd;
-    vec3 surf = vec3(0.012, 0.018, 0.04) + vec3(0.03, 0.05, 0.08)*fbm(bp*5.0);
-    float lights = smoothstep(0.62, 0.8, fbm(bp*26.0))*smoothstep(0.02, 0.15, depth)*0.6;  // city lights on the dark side
-    surf += vec3(1.0, 0.7, 0.35)*lights*0.35;
-    float cres = exp(-depth*22.0)*pow(facing, 5.0);
-    surf += vec3(0.35, 0.65, 1.0)*cres*1.3 + vec3(1.0, 0.65, 0.35)*cres*pow(facing, 12.0)*1.2;
-    surf += vec3(0.2, 0.35, 0.8)*exp(-depth*70.0)*0.35;
-    col = mix(col, surf, inside);
+    if (inside > 0.0){
+      vec2 sv = bp/br;
+      vec3 n3 = vec3(sv, sqrt(max(0.0, 1.0 - dot(sv, sv))));
+      vec3 S3 = normalize(vec3(sunDir, -0.32));                  // sun sits just behind the horizon
+      float dayL = max(dot(n3, S3), 0.0);
+      float twi = smoothstep(-0.12, 0.25, dot(n3, S3));          // soft day/night line
+      // stretch the texture toward the horizon so it reads as a curved surface
+      vec2 tc = vec2(bp.x, bp.y*2.6 - depth*6.0)*2.2;
+      float cont = fbm(tc*0.9 + vec2(4.0, 1.3) + 0.4*fbm(tc*2.0));
+      float land = smoothstep(0.5, 0.56, cont);
+      float relief = fbm(tc*4.0);
+      vec3 ocean = mix(vec3(0.004, 0.03, 0.12), vec3(0.01, 0.1, 0.26), smoothstep(0.35, 0.5, cont));
+      vec3 ground = mix(vec3(0.05, 0.1, 0.035), vec3(0.17, 0.11, 0.05), smoothstep(0.35, 0.7, relief));
+      vec3 surfDay = mix(ocean, ground, land);
+      vec2 cq = tc*1.6 + vec2(uTime*0.006, 0.0);
+      float cl = fbm(cq + 1.4*fbm(cq*0.8 + 2.0));
+      float clouds = smoothstep(0.56, 0.8, cl);
+      surfDay = mix(surfDay, vec3(0.75, 0.82, 0.95), clouds*0.7);
+      surfDay += vec3(1.0, 0.85, 0.6)*pow(max(dot(reflect(-S3, n3), vec3(0.0, 0.0, 1.0)), 0.0), 30.0)*(1.0 - land)*(1.0 - clouds)*0.6; // sun glint on water
+      vec3 surf = surfDay*(0.15 + dayL)*0.95*twi;
+      surf += vec3(1.0, 0.45, 0.2)*clouds*twi*(1.0 - twi)*0.25;    // orange cloud tops at sunset
+      // night side
+      vec3 night = vec3(0.008, 0.012, 0.03) + vec3(0.02, 0.035, 0.06)*clouds;
+      float lights = smoothstep(0.6, 0.78, fbm(bp*26.0))*land*(1.0 - clouds)*smoothstep(0.02, 0.15, depth);
+      night += vec3(1.0, 0.68, 0.32)*lights*0.5;
+      surf += night*(1.0 - twi);
+      // thin bright crescent along the limb
+      float cres = exp(-depth*22.0)*pow(facing, 5.0);
+      surf += vec3(0.35, 0.65, 1.0)*cres*1.3 + vec3(1.0, 0.65, 0.35)*cres*pow(facing, 12.0)*1.2;
+      surf += vec3(0.2, 0.35, 0.8)*exp(-depth*70.0)*0.35;
+      col = mix(col, surf, inside);
+    }
 
     // the sun itself, peeking over the edge
     vec2 sd = p - sunPos;
@@ -165,34 +240,85 @@
     vec3 sun = (core*1.8*(1.0 - inside*0.85) + wide + streak + rays)*vec3(1.0, 0.83, 0.62);
     col += sun;
 
-    // ── ringed planet ──
-    vec2 pc = asp > 1.0 ? vec2(-asp*0.5 - 0.03, 0.04) : vec2(-asp*0.5 - 0.02, -0.3);
-    float pr = asp > 1.0 ? 0.1 : 0.07;
+    // ── ringed gas giant ──
+    vec2 pc = asp > 1.0 ? vec2(-asp*0.5 + 0.02, 0.04) : vec2(-asp*0.5 + 0.02, -0.3);
+    float pr = asp > 1.0 ? 0.11 : 0.075;
     vec2 lp = p - pc;
     vec2 rp = rot(-0.38)*lp;
-    float rr = length(vec2(rp.x, rp.y/0.27))/pr;
-    float ringBand = smoothstep(1.35, 1.42, rr)*smoothstep(2.35, 2.2, rr);
-    float ringTex = (0.55 + 0.45*sin(rr*38.0))*(0.65 + 0.35*noise(vec2(rr*24.0, 0.0)));
     vec2 L = normalize(sunPos - pc);
-    vec3 ringCol = vec3(0.9, 0.75, 0.55)*ringBand*ringTex*0.75;
+    vec3 L3 = normalize(vec3(L, 0.3));
     float pd = length(lp);
     float pin = smoothstep(pr, pr - 0.0025, pd);
-    col += ringCol*step(0.0, rp.y)*(1.0 - pin)*0.85;               // back half of the rings
-    vec3 nrm = vec3(lp/pr, sqrt(max(0.0, 1.0 - dot(lp, lp)/(pr*pr))));
-    float diff = max(dot(nrm, normalize(vec3(L, 0.25))), 0.0);
-    float bandsv = sin(rp.y/pr*13.0 + noise(lp*40.0)*1.8);
-    vec3 pcol = mix(vec3(0.7, 0.48, 0.3), vec3(0.96, 0.82, 0.62), bandsv*0.5 + 0.5)*(0.04 + diff*1.05);
-    pcol += vec3(1.0, 0.6, 0.35)*pow(1.0 - nrm.z, 3.0)*diff*0.6;
-    col = mix(col, pcol, pin);
-    col = mix(col, col*0.25 + ringCol*1.2, step(rp.y, 0.0)*ringBand*0.85);   // front half over the planet
 
-    // small red moon
+    // rings: several bands, a dark gap, fine grooves, lit from the sun and shadowed by the planet
+    float rr = length(vec2(rp.x, rp.y/0.27))/pr;
+    float ringBand = smoothstep(1.3, 1.36, rr)*smoothstep(2.42, 2.3, rr);
+    float gaps = (1.0 - 0.9*exp(-pow((rr - 1.88)/0.04, 2.0)))*(1.0 - 0.55*exp(-pow((rr - 2.18)/0.018, 2.0)))*(1.0 - 0.6*smoothstep(1.55, 1.36, rr));
+    float grooves = 0.62 + 0.22*sin(rr*71.0) + 0.16*sin(rr*29.0 + 1.3);
+    float ringTex = grooves*(0.75 + 0.25*noise(vec2(rr*120.0, 0.5)))*gaps;
+    vec3 ringTint = mix(vec3(0.7, 0.52, 0.38), vec3(0.98, 0.9, 0.76), smoothstep(1.4, 2.2, rr));
+    float along = dot(lp, L);
+    float across = length(lp - along*L);
+    // the planet's shadow falls on the part of the rings behind it, away from the sun
+    float shadowed = smoothstep(0.0, -pr*0.25, along)*smoothstep(pr*1.04, pr*0.94, across)*step(0.0, rp.y);
+    float inShadow = 1.0 - shadowed;   // 1 = lit
+    vec3 ringCol = ringTint*ringBand*ringTex*(0.15 + 0.85*inShadow)*0.9;
+
+    // soft glow of the atmosphere around the disc
+    float rim = exp(-max(pd - pr, 0.0)/pr*12.0)*(1.0 - pin);
+    col += vec3(1.0, 0.68, 0.42)*rim*(0.08 + 0.5*pow(max(dot(normalize(lp), L), 0.0), 2.0));
+    col += ringCol*step(0.0, rp.y)*(1.0 - pin)*0.85;               // back half of the rings
+
+    if (pin > 0.0){
+      vec3 nrm = vec3(lp/pr, sqrt(max(0.0, 1.0 - dot(lp, lp)/(pr*pr))));
+      vec3 tn = vec3(rot(-0.38)*nrm.xy, nrm.z);                    // normal in the planet's own frame
+      float lat = tn.y;
+      float lon = atan(tn.x, tn.z);
+      vec2 sc = vec2(lon*1.6 + uTime*0.012, lat*5.0);
+      float w = fbm(sc*vec2(1.2, 0.7) + vec2(0.0, uTime*0.004));
+      float swirl = fbm(vec2(lon*5.0 - uTime*0.02, lat*28.0 + w*4.0));
+      float b = lat*11.0 + (w - 0.5)*2.4 + (swirl - 0.5)*1.2;
+      float bands = smoothstep(-0.6, 0.6, sin(b));
+      vec3 base = mix(vec3(0.6, 0.36, 0.2), vec3(0.9, 0.74, 0.52), bands);
+      base = mix(base, vec3(0.98, 0.93, 0.82), smoothstep(0.62, 0.85, swirl)*0.55);
+      base = mix(base, vec3(0.42, 0.22, 0.14), smoothstep(0.55, 0.3, swirl)*0.35*bands);
+      // a big storm with a lighter core
+      vec2 st = vec2((lon - 0.45)*1.2, (lat + 0.34)*3.2);
+      float storm = exp(-dot(st, st)*9.0);
+      float stormSwirl = fbm(rot(length(st)*6.0 - uTime*0.1)*st*4.0);
+      base = mix(base, mix(vec3(0.78, 0.3, 0.16), vec3(0.95, 0.6, 0.4), stormSwirl), storm*0.85);
+      float diff = pow(clamp((dot(nrm, L3) + 0.2)/1.2, 0.0, 1.0), 1.6);
+      float term = smoothstep(-0.25, 0.25, dot(nrm, L3));
+      vec3 pcol = base*(0.025 + diff*1.1)*mix(0.7, 1.0, nrm.z);
+      pcol += vec3(1.0, 0.55, 0.3)*term*(1.0 - term)*0.12;          // warm glow along the day/night line
+      pcol += vec3(1.0, 0.75, 0.5)*pow(1.0 - nrm.z, 3.0)*diff*0.7;  // hazy lit rim
+      // the rings cast a thin shadow band across the planet
+      vec2 sh = rot(-0.38)*(lp + L*pr*0.08);
+      float srr = length(vec2(sh.x, sh.y/0.27))/pr;
+      float ringShadow = smoothstep(1.3, 1.38, srr)*smoothstep(2.4, 2.3, srr)*step(sh.y, 0.0);
+      pcol *= 1.0 - 0.45*ringShadow*diff;
+      col = mix(col, pcol, pin);
+    }
+    col = mix(col, col*0.2 + ringCol*1.25, step(rp.y, 0.0)*ringBand*0.9*smoothstep(0.1, 0.4, gaps));   // front half over the planet
+
+    // small rusty moon with craters and a polar cap
     vec2 mc = asp > 1.0 ? vec2(0.06, 0.4) : vec2(0.16, -0.2);
-    vec2 mp = p - mc; float mr = 0.022;
+    vec2 mp = p - mc; float mr = asp > 1.0 ? 0.03 : 0.024;
     float min_ = smoothstep(mr, mr - 0.002, length(mp));
-    vec3 mn = vec3(mp/mr, sqrt(max(0.0, 1.0 - dot(mp, mp)/(mr*mr))));
-    vec3 mcol = vec3(0.75, 0.32, 0.2)*(0.05 + max(dot(mn, normalize(vec3(normalize(sunPos - mc), 0.2))), 0.0))*(0.8 + 0.4*noise(mp*300.0));
-    col = mix(col, mcol, min_);
+    if (min_ > 0.0){
+      vec3 mn = vec3(mp/mr, sqrt(max(0.0, 1.0 - dot(mp, mp)/(mr*mr))));
+      vec2 muv = mn.xy/(0.6 + 0.4*mn.z);                        // wrap the texture around the sphere
+      float maria = fbm(muv*2.5 + 9.0);
+      vec3 mbase = mix(vec3(0.78, 0.38, 0.22), vec3(0.45, 0.2, 0.14), smoothstep(0.45, 0.7, maria));
+      mbase *= 1.0 + 0.6*craters(muv*4.0) + 0.35*craters(muv*9.0 + 3.0);
+      mbase = mix(mbase, vec3(0.95, 0.92, 0.9), smoothstep(0.78, 0.86, mn.y + 0.05*noise(muv*12.0)));
+      vec3 mL = normalize(vec3(normalize(sunPos - mc), 0.2));
+      float md = max(dot(mn, mL), 0.0);
+      vec3 mcol = mbase*(0.03 + md*1.15);
+      mcol += vec3(1.0, 0.6, 0.4)*pow(1.0 - mn.z, 3.0)*md*0.5;
+      col = mix(col, mcol, min_);
+    }
+    col += vec3(1.0, 0.5, 0.3)*exp(-max(length(mp) - mr, 0.0)/mr*10.0)*(1.0 - min_)*0.06;
 
     // finish
     vec2 uv = gl_FragCoord.xy/uRes;
@@ -239,7 +365,7 @@
   function resize() {
     W = innerWidth; H = innerHeight;
     // The backdrop is soft, so render it below full resolution to stay light on the GPU
-    const scale = Math.min(1, 1100 / Math.max(W, H)) * Math.min(devicePixelRatio || 1, 1.25);
+    const scale = Math.min(1, 1400 / Math.max(W, H)) * Math.min(devicePixelRatio || 1, 1.25);
     bg.width = Math.round(W * scale); bg.height = Math.round(H * scale);
     if (prog) gl.viewport(0, 0, bg.width, bg.height);
     DPR = Math.min(devicePixelRatio || 1, 1.5);
@@ -304,8 +430,8 @@
 
     // debris spiralling into the black hole, on the disk's tilted plane
     const bh = bhScreen(t);
-    if (t > 2.5) while (debris.length < 70) spawnDebris(bh);
-    const tilt = 0.28, flat = 0.2;
+    if (t > 2.5) while (debris.length < 40) spawnDebris(bh);
+    const tilt = 0.28, flat = 0.16;
     for (let i = debris.length - 1; i >= 0; i--) {
       const d = debris[i];
       const w = 2.2 * Math.pow(bh.rs / d.r, 1.5) * 3;
@@ -318,7 +444,7 @@
       const behind = Math.sin(d.a) > 0 && Math.hypot(x - bh.x, y - bh.y) < bh.rs * 1.05;
       if (behind) continue;
       const heat = 1 - (d.r - bh.rs) / (bh.rs * 9);
-      const s = d.size * (2 + heat * 3);
+      const s = d.size * (1.2 + heat * 2);
       ctx.globalAlpha = 0.25 + 0.6 * heat;
       ctx.drawImage(d.hot > 0.5 ? glowFire : glowWhite, x - s, y - s, s * 2, s * 2);
     }
