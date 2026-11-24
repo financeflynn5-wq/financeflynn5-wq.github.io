@@ -78,6 +78,7 @@ window.GAMES = [
     controls: "WASD to move, left click to swing, right click to raise your shield.",
     play: "https://financeflynn5-wq.github.io/flynnland-play/",
     embed: true,
+    image: "img/flynnland.jpg",
     colors: ["#5a4632", "#0f0c0a"],
   },
   {
@@ -159,6 +160,7 @@ window.GAMES = [
     ],
     play: "https://tow.5-222-13-73.sslip.io/",
     embed: true,
+    image: "img/time-of-war.jpg",
     colors: ["#4cc9f0", "#1b1f3b"],
   },
   {
@@ -171,6 +173,7 @@ window.GAMES = [
     description: ["Drop onto Helios Reach and be the last one standing."],
     play: "https://fall.5-222-13-73.sslip.io/",
     embed: true,
+    image: "img/flynn-fall.jpg",
     colors: ["#f72585", "#3a0ca3"],
   },
   {
@@ -187,6 +190,7 @@ window.GAMES = [
     controls: "WASD to move, mouse to aim, left click to fire, E to swap parts, G to throw a bomb.",
     play: "https://scrap.5-222-13-73.sslip.io/",
     embed: true,
+    image: "img/scrapforge.jpg",
     colors: ["#9aa5b1", "#2b2d33"],
   },
 ];
