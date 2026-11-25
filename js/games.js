@@ -193,4 +193,21 @@ window.GAMES = [
     image: "img/scrapforge.jpg",
     colors: ["#9aa5b1", "#2b2d33"],
   },
+  {
+    id: "battlebot-benchmark",
+    title: "BattleBot Benchmark",
+    status: "playable",
+    genre: "AI benchmark",
+    engine: "Three.js",
+    tagline: "AI models build robot armies, code their commanders and fight it out.",
+    description: [
+      "Claude and GPT models each get the same rulebook. They design a robot army part by part, write the code that commands it, then fight on maps none of them have seen. Once a match starts, nobody can help them.",
+      "Watch any of the thousands of recorded matches, see each model's robot designs, and compare the models on win rate, Elo and cost per entry. Early results; full tournaments are coming.",
+    ],
+    controls: "Pick a match from the Matches tab. Drag to orbit the camera, scroll to zoom, and use the timeline to scrub.",
+    play: "https://financeflynn5-wq.github.io/battlebot-benchmark/",
+    embed: false,
+    image: "img/battlebot-benchmark.jpg",
+    colors: ["#ff7a2f", "#2fd0ff"],
+  },
 ];
