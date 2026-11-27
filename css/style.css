@@ -515,3 +515,5 @@ footer .wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; j
 }
 .muted-sm { color: var(--muted); font-size: 14px; }
 .linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--sun); text-decoration: underline; cursor: pointer; }
+.prize-card .prize-plus { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.field[hidden] { display: none; }

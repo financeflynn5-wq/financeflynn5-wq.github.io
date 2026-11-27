@@ -19,8 +19,8 @@ window.COMPETITION = {
   deadlineLabel: "Friday, December 4 at 11:59 PM ET",
   reviewStart: "2026-12-05T12:00:00-05:00",
   reviewLabel: "Saturday, December 5, live on stream",
-  voteLabel: "Saturday, December 5 to Monday, December 7, in a Discord poll",
-  winnerLabel: "Monday, December 7",
+  voteLabel: "Saturday, December 5 to Tuesday, December 8, in a Discord poll",
+  winnerLabel: "Tuesday, December 8, live on stream",
   prizeValue: "$25",
   channel: "#competition-submissions",
   channelLink: "https://discord.gg/QZXRnxMSZ",
@@ -107,6 +107,16 @@ window.COMPETITION = {
   onType();
 
   const PRIZE_LABEL = { robux: `${C.prizeValue} of Robux`, amazon: `${C.prizeValue} Amazon gift card` };
+
+  // "Other gift card" asks which one
+  const otherPrize = $("other-prize");
+  form.querySelectorAll("[name=prize]").forEach((r) =>
+    r.addEventListener("change", () => {
+      const on = form.elements.prize.value === "other";
+      otherPrize.hidden = !on;
+      form.elements.otherPrize.required = on;
+    })
+  );
   const discordUrl = C.channelLink || SITE.links?.discord;
 
   form.addEventListener("submit", (e) => {
@@ -123,7 +133,7 @@ window.COMPETITION = {
       `Game: ${f.gameTitle.value.trim()}`,
       `Link (${TYPE_LABEL[f.linkType.value]}): ${f.link.value.trim()}`,
       f.howToPlay.value.trim() ? `How to play: ${f.howToPlay.value.trim()}` : "",
-      `Prize if I win: ${PRIZE_LABEL[f.prize.value]}`,
+      `Prize if I win: ${f.prize.value === "other" ? `${C.prizeValue} ${f.otherPrize.value.trim()} gift card (if possible)` : PRIZE_LABEL[f.prize.value]}`,
     ].filter(Boolean).join("\n");
 
     $("entry-done").innerHTML = `
