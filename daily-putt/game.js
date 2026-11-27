@@ -183,37 +183,68 @@ const Leaderboard = {
 };
 
 // ───────────────────────── Scene ─────────────────────────
+// The game logic is flat (x, y on the ground). Drawing is 3D with z as height.
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 const scene = new THREE.Scene();
-scene.background = new THREE.Color("#1d3b24");
-const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
-camera.position.z = 100;
-const cam = { x: 0, y: 0, rot: 0, upp: 0.5 }; // upp = world units per screen pixel
+scene.background = new THREE.Color("#9fd8ff");
+scene.fog = new THREE.Fog("#c4e8ff", 260, 950);
+const sky = new THREE.HemisphereLight("#ffffff", "#5b8a52", 2.4);
+sky.position.set(0, 0, 1);
+const sun = new THREE.DirectionalLight("#fff4d6", 2.2);
+sun.position.set(-60, -80, 150);
+scene.add(sky, sun);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 2500);
+camera.up.set(0, 0, 1);
+// rot is the camera's heading: "up the screen" points along (-sin rot, cos rot) on the ground.
+const cam = { rot: 0, rotTarget: null, pos: new THREE.Vector3(), look: new THREE.Vector3(), snap: true,
+  back: 26, height: 17, ahead: 36, fx: 0, fy: 0 };
 let W = 1, Hpx = 1;
 function resize() {
   W = window.innerWidth; Hpx = window.innerHeight;
   renderer.setSize(W, Hpx, false);
+  camera.aspect = W / Hpx;
+  camera.fov = camera.aspect < 1 ? 70 : 52; // taller view on a phone held upright
+  camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", resize);
 resize();
 
 const CIRCLE = new THREE.CircleGeometry(1, 40);
 const PLANE = new THREE.PlaneGeometry(1, 1);
-const mat = (c, opacity = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: opacity < 1, opacity });
-function disc(color, x, y, z, rx, ry = rx, rot = 0, opacity = 1) {
-  const m = new THREE.Mesh(CIRCLE, mat(color, opacity));
-  m.position.set(x, y, z); m.scale.set(rx, ry, 1); m.rotation.z = rot;
+const CYL = new THREE.CylinderGeometry(1, 1, 1, 12);
+const CONE = new THREE.ConeGeometry(1, 1, 10);
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+const SPHERE = new THREE.SphereGeometry(1, 16, 12);
+const ROCK = new THREE.DodecahedronGeometry(1);
+const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
+// Flat paint on the ground. It is drawn first, in "order", and never hides 3D objects.
+const paint = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+// See-through marks lying on the ground (shadows, the aim line).
+const decal = (c, opacity) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
+function disc(material, x, y, order, rx, ry = rx, rot = 0) {
+  const m = new THREE.Mesh(CIRCLE, material);
+  m.position.set(x, y, 0.03); m.scale.set(rx, ry, 1); m.rotation.z = rot; m.renderOrder = order;
   return m;
 }
-function bar(color, opacity = 1) { return new THREE.Mesh(PLANE, mat(color, opacity)); }
-function setBar(m, ax, ay, bx, by, width, z) {
-  m.position.set((ax + bx) / 2, (ay + by) / 2, z);
+function bar(material, order) { const m = new THREE.Mesh(PLANE, material); m.renderOrder = order; return m; }
+function setBar(m, ax, ay, bx, by, width) {
+  m.position.set((ax + bx) / 2, (ay + by) / 2, 0.03);
   m.rotation.z = Math.atan2(by - ay, bx - ax);
   m.scale.set(Math.max(0.001, dist(ax, ay, bx, by)), width, 1);
 }
+// A solid standing on the ground: w wide, h tall, with its base at height z.
+function solid(geo, material, w, h, z = 0, d = w) {
+  const m = new THREE.Mesh(geo, material);
+  m.rotation.x = Math.PI / 2; m.scale.set(w, h, d); m.position.z = z + h / 2;
+  return m;
+}
+
+const outer = bar(paint("#3a7a3c"), -110);
+outer.scale.set(6000, 6000, 1);
+scene.add(outer);
 
 let course = null; // group holding the current hole's meshes
 function buildCourse(H) {
@@ -221,14 +252,14 @@ function buildCourse(H) {
   course = new THREE.Group();
   const b = H.bounds, add = (m) => (course.add(m), m);
 
-  const rough = bar("#3f7d3a");
+  const rough = bar(paint("#3f8a3d"), -100);
   rough.position.set((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 0);
   rough.scale.set(b.maxX - b.minX, b.maxY - b.minY, 1);
   add(rough);
   // White out-of-bounds line.
   for (const [ax, ay, bx, by] of [[b.minX, b.minY, b.maxX, b.minY], [b.maxX, b.minY, b.maxX, b.maxY],
     [b.maxX, b.maxY, b.minX, b.maxY], [b.minX, b.maxY, b.minX, b.minY]]) {
-    setBar(add(bar("#ffffff", 0.8)), ax, ay, bx, by, 0.8, 0.05);
+    setBar(add(bar(paint("#f2f2f2"), -99)), ax, ay, bx, by, 1);
   }
 
   // Fairway ribbon.
@@ -236,58 +267,85 @@ function buildCourse(H) {
   H.line.forEach(([x, y], i) => {
     const [px, py] = H.line[Math.max(i - 1, 0)], [qx, qy] = H.line[Math.min(i + 1, H.line.length - 1)];
     const l = dist(px, py, qx, qy) || 1, nx = -(qy - py) / l, ny = (qx - px) / l;
-    pos.push(x + nx * H.hw, y + ny * H.hw, 0.1, x - nx * H.hw, y - ny * H.hw, 0.1);
+    pos.push(x + nx * H.hw, y + ny * H.hw, 0, x - nx * H.hw, y - ny * H.hw, 0);
     if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k, k - 1, k + 1); }
   });
   const fg = new THREE.BufferGeometry();
   fg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   fg.setIndex(idx);
-  const fm = mat("#5fae4e"); fm.side = THREE.DoubleSide;
-  add(new THREE.Mesh(fg, fm));
-  add(disc("#5fae4e", 0, 0, 0.1, Math.max(9, H.hw)));
-  const tee = bar("#7cc765"); tee.position.set(0, 0, 0.15); tee.scale.set(9, 5, 1); add(tee);
+  const fairway = new THREE.Mesh(fg, paint("#62b552")); fairway.renderOrder = -98; add(fairway);
+  add(disc(paint("#62b552"), 0, 0, -98, Math.max(9, H.hw)));
+  const tee = bar(paint("#80cf69"), -97); tee.position.set(0, 0, 0); tee.scale.set(9, 5, 1); add(tee);
 
-  for (const e of H.bunkers) add(disc("#e8d79a", e.x, e.y, 0.2, e.rx, e.ry, e.rot));
-  add(disc("#8fd46a", H.green.x, H.green.y, 0.3, H.green.r));
-  for (const e of H.ponds) {
-    add(disc("#2f77b8", e.x, e.y, 0.35, e.rx, e.ry, e.rot));
-    add(disc("#4a9be0", e.x, e.y, 0.36, e.rx - 1.2, e.ry - 1.2, e.rot));
+  for (const e of H.bunkers) {
+    add(disc(paint("#cdbb7c"), e.x, e.y, -96, e.rx + 0.6, e.ry + 0.6, e.rot));
+    add(disc(paint("#eedd9f"), e.x, e.y, -95, e.rx, e.ry, e.rot));
   }
-  add(disc("#0c1a0c", H.cup.x, H.cup.y, 0.4, 0.9));
-  setBar(add(bar("#f4f4f4")), H.cup.x, H.cup.y, H.cup.x, H.cup.y + 5, 0.3, 6);
-  const flag = bar("#ff4136"); flag.position.set(H.cup.x + 1.4, H.cup.y + 4.2, 6); flag.scale.set(2.8, 1.7, 1); add(flag);
+  add(disc(paint("#93db6d"), H.green.x, H.green.y, -94, H.green.r));
+  for (const e of H.ponds) {
+    add(disc(paint("#2f77b8"), e.x, e.y, -93, e.rx, e.ry, e.rot));
+    add(disc(paint("#56a8ec"), e.x, e.y, -92, e.rx - 1.2, e.ry - 1.2, e.rot));
+  }
+  add(disc(paint("#0c1a0c"), H.cup.x, H.cup.y, -91, 0.9));
+  const pin = new THREE.Group();
+  pin.add(solid(CYL, lam("#f4f4f4"), 0.14, 10));
+  const flag = new THREE.Mesh(PLANE, new THREE.MeshBasicMaterial({ color: "#ff3b30", side: THREE.DoubleSide }));
+  flag.rotation.x = Math.PI / 2; flag.scale.set(3.4, 2, 1); flag.position.set(1.7, 0, 9);
+  pin.add(flag); pin.position.set(H.cup.x, H.cup.y, 0);
+  H.pin = add(pin);
 
   for (const o of H.obstacles) {
+    const g = new THREE.Group();
     if (o.kind === "tree") {
-      add(disc("#1f4d24", o.x, o.y, 2, o.r));
-      add(disc("#2f6b33", o.x - o.r * 0.15, o.y + o.r * 0.15, 2.1, o.r * 0.68));
+      const h = o.r * 3.4;
+      g.add(solid(CYL, lam("#6b4a2b"), o.r * 0.22, h * 0.3));
+      g.add(solid(CONE, lam("#1f6a2c"), o.r, h * 0.62, h * 0.22));
+      g.add(solid(CONE, lam("#2f8a3b"), o.r * 0.72, h * 0.48, h * 0.56));
     } else {
-      add(disc("#5b5f66", o.x, o.y, 2, o.r));
-      add(disc("#8a9099", o.x - 0.3, o.y + 0.3, 2.1, o.r * 0.6));
+      const rock = new THREE.Mesh(ROCK, lam("#8a9099"));
+      rock.scale.set(o.r, o.r, o.r * 0.75); rock.position.z = o.r * 0.35; rock.rotation.z = o.x;
+      g.add(rock);
     }
+    g.position.set(o.x, o.y, 0);
+    o.mesh = add(g);
+    add(disc(decal("#000000", 0.22), o.x + o.r * 0.25, o.y + o.r * 0.25, -50, o.r * 1.05));
   }
   scene.add(course);
 }
 
 // Moving things.
-const ballShadow = disc("#000000", 0, 0, 3, 0.6, 0.6, 0, 0.3);
-const ballRim = disc("#1a1a1a", 0, 0, 7, 0.8);
-const ballMesh = disc("#ffffff", 0, 0, 7.1, 0.6);
-const golferMesh = new THREE.Group();
-golferMesh.add(disc("#1a1a1a", 0, 0, 0, 1.35), disc("#ffd23f", 0, 0, 0.1, 1.1), disc("#c23b22", 0.2, 0, 0.2, 0.55));
-golferMesh.position.z = 4;
-const cartMesh = new THREE.Group();
-{
-  const part = (c, x, y, w, h, z) => { const m = bar(c); m.position.set(x, y, z); m.scale.set(w, h, 1); cartMesh.add(m); };
-  for (const [x, y] of [[-1.5, 1.5], [1.5, 1.5], [-1.5, -1.5], [1.5, -1.5]]) part("#111111", x, y, 1.3, 0.7, 0);
-  part("#1a1a1a", 0, 0, 4.9, 3.1, 0.1);
-  part("#f5f5f0", 0, 0, 4.5, 2.7, 0.2);
-  part("#2b6cb0", -0.4, 0, 2.6, 2.3, 0.3);
-  part("#ffe14d", 2.0, 0, 0.4, 1.6, 0.3);
-  cartMesh.position.z = 4;
+const ballShadow = disc(decal("#000000", 0.35), 0, 0, -40, 0.7);
+const ballMesh = new THREE.Mesh(SPHERE, new THREE.MeshBasicMaterial({ color: "#ffffff" }));
+ballMesh.scale.setScalar(0.6);
+const beacon = solid(CYL, new THREE.MeshBasicMaterial({ color: "#ffe14d", transparent: true, opacity: 0.45, depthWrite: false }), 0.6, 40);
+function makeGolfer() {
+  const g = new THREE.Group();
+  g.add(solid(BOX, lam("#2b3a55"), 0.9, 1.3, 0, 0.6));
+  g.add(solid(CYL, lam("#ffd23f"), 0.55, 1.5, 1.3));
+  const head = new THREE.Mesh(SPHERE, lam("#f0c8a0")); head.scale.setScalar(0.45); head.position.z = 3.2; g.add(head);
+  g.add(solid(CYL, lam("#c23b22"), 0.5, 0.25, 3.45));
+  return g;
 }
-const aimBar = bar("#ffffff", 0.85), aimCarry = disc("#ffe14d", 0, 0, 5.2, 1.1), aimEnd = disc("#ffffff", 0, 0, 5.1, 1.6, 1.6, 0, 0.5);
-scene.add(ballShadow, ballRim, ballMesh, golferMesh, cartMesh, aimBar, aimCarry, aimEnd);
+const golferMesh = makeGolfer();
+const cartMesh = new THREE.Group(); // built facing +x
+{
+  const white = lam("#f5f5f0"), dark = lam("#1a1a1a");
+  const box = (m, x, y, z, sx, sy, sz) => { const b = new THREE.Mesh(BOX, m); b.position.set(x, y, z); b.scale.set(sx, sy, sz); cartMesh.add(b); };
+  box(white, 0, 0, 1.0, 4.8, 2.6, 0.9);          // body
+  box(white, 1.9, 0, 1.6, 1.0, 2.4, 0.5);        // nose
+  box(lam("#2b6cb0"), -0.5, 0, 1.75, 1.3, 2.3, 0.6); // seat
+  box(lam("#2b6cb0"), -1.2, 0, 2.3, 0.3, 2.3, 1.2);  // seat back
+  box(white, -0.3, 0, 4.1, 3.6, 2.7, 0.2);       // roof
+  for (const [x, y] of [[1.3, 1.2], [1.3, -1.2], [-1.9, 1.2], [-1.9, -1.2]]) box(dark, x, y, 2.75, 0.14, 0.14, 2.6);
+  box(lam("#ffe14d"), 2.42, 0, 1.3, 0.1, 1.6, 0.3); // headlights
+  for (const [x, y] of [[1.5, 1.35], [1.5, -1.35], [-1.5, 1.35], [-1.5, -1.35]]) {
+    const w = new THREE.Mesh(CYL, dark); w.scale.set(0.65, 0.5, 0.65); w.position.set(x, y, 0.65); cartMesh.add(w);
+  }
+  cartMesh.add(disc(decal("#000000", 0.3), 0, 0, -45, 3, 1.9));
+}
+const driver = makeGolfer(); driver.scale.setScalar(0.85); driver.position.set(-0.5, 0.5, 1.2); cartMesh.add(driver);
+const aimBar = bar(decal("#ffffff", 0.9), -30), aimCarry = disc(decal("#ffe14d", 1), 0, 0, -28, 1.3), aimEnd = disc(decal("#ffffff", 0.55), 0, 0, -29, 2.2);
+scene.add(ballShadow, ballMesh, beacon, golferMesh, cartMesh, aimBar, aimCarry, aimEnd);
 
 // ───────────────────────── Game state ─────────────────────────
 let H = null;
@@ -310,7 +368,7 @@ function loadHole(seed) {
   G.last = { x: 0, y: 0 }; G.golfer = { x: 0, y: 0 };
   Object.assign(G.cart, { x: -7, y: -4, a: Math.PI / 2, v: 0 });
   G.strokes = 0; G.penalties = 0; G.aim = null; G.stick = null;
-  cam.rot = aimAngle(); cam.x = 0; cam.y = 40;
+  cam.rot = aimAngle(); cam.snap = true;
   $("windMph").textContent = H.wind.mph;
 }
 function aimAngle() {
@@ -350,7 +408,7 @@ function shoot(dx, dy, p) {
     b.T = 0.7 + 1.5 * p; b.t = 0; b.air = true;
     const v = (plan.D * TUNE.carry) / b.T;
     b.vx = dx * v; b.vy = dy * v;
-    b.apex = 3 + 9 * p; b.rollD = plan.D * (1 - TUNE.carry);
+    b.apex = 4 + 22 * p; b.rollD = plan.D * (1 - TUNE.carry);
   }
   G.mode = "flight"; setHint("");
 }
@@ -588,53 +646,62 @@ window.addEventListener("keyup", (e) => { G.keys[e.key] = false; });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // ───────────────────────── Camera, drawing, loop ─────────────────────────
-function toScreen(x, y) {
-  const rx = x - cam.x, ry = y - cam.y, c = Math.cos(cam.rot), s = Math.sin(cam.rot);
-  return { x: W / 2 + (rx * c + ry * s) / cam.upp, y: Hpx / 2 - (-rx * s + ry * c) / cam.upp };
-}
+// Third person: behind the golfer for swings, behind the cart when driving.
 function updateCamera(dt) {
-  const b = G.ball, ux = -Math.sin(cam.rot), uy = Math.cos(cam.rot); // world "up the screen"
-  let tx = b.x, ty = b.y, upp = cam.upp;
+  const b = G.ball;
+  let fx = b.x, fy = b.y, lookZ = 0, turn = 4;
   if (G.mode === "aim" || G.mode === "title") {
     if (onGreen()) {
-      upp = Math.max(75 / Hpx, 46 / W);
-      tx = (b.x + H.cup.x) / 2; ty = (b.y + H.cup.y) / 2;
-    } else {
-      upp = Math.max(200 / Hpx, 100 / W);
-      const ahead = Math.min(70, dist(b.x, b.y, H.cup.x, H.cup.y) * 0.5);
-      tx = b.x + ux * ahead; ty = b.y + uy * ahead;
-    }
-    cam.rotTarget = G.aim ? cam.rotTarget : aimAngle();
+      const d = dist(b.x, b.y, H.cup.x, H.cup.y);
+      cam.back = 9 + d * 0.3; cam.height = 5 + d * 0.2; cam.ahead = d * 0.6;
+    } else { cam.back = 26; cam.height = 17; cam.ahead = 36; }
+    if (!G.aim) cam.rotTarget = aimAngle();
+  } else if (G.mode === "flight") {
+    if (b.air) { cam.back = 26; cam.height = 17 + b.h * 0.4; cam.ahead = 24; lookZ = b.h * 0.8; }
   } else if (G.mode === "drive") {
-    upp = Math.max(130 / Hpx, 80 / W);
-    const c = G.cart, d = dist(c.x, c.y, b.x, b.y) || 1, look = Math.min(18, d * 0.4);
-    tx = c.x + ((b.x - c.x) / d) * look; ty = c.y + ((b.y - c.y) / d) * look;
+    fx = G.cart.x; fy = G.cart.y; cam.back = 19; cam.height = 11; cam.ahead = 14; turn = 2.4;
+    cam.rotTarget = G.cart.a - Math.PI / 2;
   } else if (G.mode === "done") {
-    upp = Math.max(60 / Hpx, 40 / W); tx = H.cup.x; ty = H.cup.y;
+    fx = H.cup.x; fy = H.cup.y; cam.back = 15; cam.height = 8; cam.ahead = 0; turn = 1;
+    cam.rotTarget = cam.rot + 0.4; // slow orbit around the pin
   }
-  const k = 1 - Math.exp(-dt * 5);
-  cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k; cam.upp += (upp - cam.upp) * k;
-  if (cam.rotTarget != null) {
+  if (cam.rotTarget != null && !G.aim) { // hold still while the player is aiming
     const d = Math.atan2(Math.sin(cam.rotTarget - cam.rot), Math.cos(cam.rotTarget - cam.rot));
-    cam.rot += d * (1 - Math.exp(-dt * 4));
+    cam.rot += cam.snap ? d : d * (1 - Math.exp(-dt * turn));
   }
-  camera.left = (-W / 2) * cam.upp; camera.right = (W / 2) * cam.upp;
-  camera.top = (Hpx / 2) * cam.upp; camera.bottom = (-Hpx / 2) * cam.upp;
-  camera.position.x = cam.x; camera.position.y = cam.y; camera.rotation.z = cam.rot;
-  camera.updateProjectionMatrix();
+  const ux = -Math.sin(cam.rot), uy = Math.cos(cam.rot);
+  const gx = fx - ux * cam.back, gy = fy - uy * cam.back;
+  const k = cam.snap ? 1 : 1 - Math.exp(-dt * 5);
+  cam.pos.x += (gx - cam.pos.x) * k; cam.pos.y += (gy - cam.pos.y) * k; cam.pos.z += (cam.height - cam.pos.z) * k;
+  cam.look.x += (fx + ux * cam.ahead - cam.look.x) * k; cam.look.y += (fy + uy * cam.ahead - cam.look.y) * k;
+  cam.look.z += (lookZ - cam.look.z) * k;
+  cam.fx = fx; cam.fy = fy; cam.snap = false;
+  camera.position.copy(cam.pos); camera.lookAt(cam.look); camera.updateMatrixWorld();
 }
 
+const tmp = new THREE.Vector3();
 function draw() {
-  const b = G.ball, lift = 1 + b.h * 0.06;
-  ballMesh.position.set(b.x, b.y + b.h * 0.5, 7.1); ballMesh.scale.set(0.6 * lift, 0.6 * lift, 1);
-  ballRim.position.set(b.x, b.y + b.h * 0.5, 7); ballRim.scale.set(0.8 * lift, 0.8 * lift, 1);
-  ballShadow.position.set(b.x, b.y, 3); ballShadow.visible = b.h > 0.2;
-  ballMesh.visible = ballRim.visible = G.mode !== "done";
+  const b = G.ball;
+  ballMesh.position.set(b.x, b.y, 0.6 + b.h);
+  ballShadow.position.set(b.x, b.y, 0.03);
+  ballMesh.visible = ballShadow.visible = G.mode !== "done";
+  beacon.visible = G.mode === "drive"; beacon.position.x = b.x; beacon.position.y = b.y;
+  if (H.pin) H.pin.visible = !(onGreen() && dist(b.x, b.y, H.cup.x, H.cup.y) < 6 && G.mode !== "done");
 
   const rx = Math.cos(cam.rot), ry = Math.sin(cam.rot);
   golferMesh.visible = G.mode === "aim" || G.mode === "flight" || G.mode === "title";
-  golferMesh.position.set(G.golfer.x - rx * 2, G.golfer.y - ry * 2, 4);
-  cartMesh.position.set(G.cart.x, G.cart.y, 4); cartMesh.rotation.z = G.cart.a;
+  golferMesh.position.set(G.golfer.x - rx * 1.6, G.golfer.y - ry * 1.6, 0);
+  golferMesh.rotation.z = cam.rot;
+  driver.visible = G.mode === "drive";
+  cartMesh.position.set(G.cart.x, G.cart.y, 0); cartMesh.rotation.z = G.cart.a;
+
+  // Hide trees standing between the camera and what it follows.
+  for (const o of H.obstacles) {
+    if (o.kind !== "tree") continue;
+    const vx = cam.fx - cam.pos.x, vy = cam.fy - cam.pos.y;
+    const t = Math.max(0, Math.min(1, ((o.x - cam.pos.x) * vx + (o.y - cam.pos.y) * vy) / (vx * vx + vy * vy || 1)));
+    o.mesh.visible = dist(o.x, o.y, cam.pos.x + vx * t, cam.pos.y + vy * t) > o.r + 1.5;
+  }
 
   const aiming = G.mode === "aim" && G.aim && G.aim.p >= 0.06;
   aimBar.visible = aimEnd.visible = !!aiming; aimCarry.visible = false;
@@ -642,13 +709,11 @@ function draw() {
   if (G.mode === "aim" && G.aim) $("power").firstElementChild.style.width = G.aim.p * 100 + "%";
   if (aiming) {
     const plan = shotPlan(G.aim.p), ex = b.x + G.aim.dx * plan.D, ey = b.y + G.aim.dy * plan.D;
-    const thick = Math.max(0.35, cam.upp * 3);
-    setBar(aimBar, b.x, b.y, ex, ey, thick, 5);
-    aimEnd.position.set(ex, ey, 5.1); aimEnd.scale.setScalar(Math.max(1.2, cam.upp * 7));
+    setBar(aimBar, b.x, b.y, ex, ey, plan.putt ? 0.25 : 0.7);
+    aimEnd.position.set(ex, ey, 0.03); aimEnd.scale.setScalar(plan.putt ? 0.8 : 2.2);
     if (!plan.putt) {
       aimCarry.visible = true;
-      aimCarry.position.set(b.x + G.aim.dx * plan.D * TUNE.carry, b.y + G.aim.dy * plan.D * TUNE.carry, 5.2);
-      aimCarry.scale.setScalar(Math.max(0.9, cam.upp * 5));
+      aimCarry.position.set(b.x + G.aim.dx * plan.D * TUNE.carry, b.y + G.aim.dy * plan.D * TUNE.carry, 0.03);
     }
   }
 
@@ -658,14 +723,21 @@ function draw() {
   $("pen").textContent = G.penalties ? `+${G.penalties}` : "";
   $("strokes").textContent = G.strokes;
   $("pin").textContent = Math.round(dist(b.x, b.y, H.cup.x, H.cup.y));
+  // Arrow pointing up the screen means the wind blows away from you.
   $("windArrow").style.transform = `rotate(${(-(H.wind.angle - cam.rot) * 180) / Math.PI}deg)`;
 
   const m = $("marker");
   if (G.mode === "drive") {
-    const p = toScreen(b.x, b.y), pad = 34;
+    tmp.set(b.x, b.y, 1).applyMatrix4(camera.matrixWorldInverse);
+    let sx, sy;
+    if (tmp.z < -0.1) {
+      tmp.set(b.x, b.y, 1).project(camera);
+      sx = ((tmp.x + 1) / 2) * W; sy = ((1 - tmp.y) / 2) * Hpx;
+    } else { sx = tmp.x > 0 ? W : 0; sy = Hpx; } // the ball is behind you
+    const pad = 34;
     m.style.display = "block";
-    m.style.left = Math.max(pad, Math.min(W - pad, p.x)) + "px";
-    m.style.top = Math.max(pad + 60, Math.min(Hpx - pad - 50, p.y)) + "px";
+    m.style.left = Math.max(pad, Math.min(W - pad, sx)) + "px";
+    m.style.top = Math.max(pad + 60, Math.min(Hpx - pad - 50, sy)) + "px";
     m.firstElementChild.textContent = `${Math.round(dist(b.x, b.y, G.cart.x, G.cart.y))} yds`;
   } else m.style.display = "none";
 
@@ -683,8 +755,7 @@ function frame(now) {
 }
 
 showTitle();
-cam.upp = Math.max(200 / Hpx, 100 / W);
 requestAnimationFrame(frame);
 
 // For testing and tuning from the browser console.
-window.__dp = { G, TUNE, cam, generateHole, terrainAt, hole: () => H, shoot, toScreen };
+window.__dp = { G, TUNE, cam, generateHole, terrainAt, hole: () => H, shoot };
