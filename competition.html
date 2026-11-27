@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Game Dev Competition · Flynn's Games</title>
+  <meta name="description" content="Submit a game you made. Flynn plays every entry live on stream, and the winner gets $25 of Robux or a $25 Amazon gift card.">
+  <meta name="theme-color" content="#04050c">
+  <meta property="og:title" content="Flynn's Game Dev Competition">
+  <meta property="og:description" content="Submit a game you made. Flynn plays every entry live on stream, and the winner gets $25 of Robux or a $25 Amazon gift card.">
+  <meta property="og:image" content="https://financeflynn5-wq.github.io/img/steelbind.jpg">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><radialGradient id='g' cx='.35' cy='.35'><stop offset='0' stop-color='%23fff3c4'/><stop offset='.4' stop-color='%23ffb03a'/><stop offset='1' stop-color='%23ff3d2e'/></radialGradient></defs><circle cx='16' cy='16' r='12' fill='url(%23g)'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=14">
+</head>
+<body data-page="competition">
+  <header class="topbar" id="topbar"></header>
+
+  <section class="hero comp-hero">
+    <div class="wrap">
+      <div class="reveal">
+        <span class="eyebrow"><span class="dot"></span> Entries open</span>
+        <h1><span class="glow">Game Dev</span><br>Competition</h1>
+        <p class="lead">Made a game? Send it in. I'll play every entry live on stream, my Discord votes for the best one, and the winner gets <b data-c="prizeValue">$25</b> of Robux or a <b data-c="prizeValue">$25</b> gift card, plus their name on my stream for a whole week.</p>
+        <div class="btn-row">
+          <a class="btn fire" href="#enter">Enter your game</a>
+          <a class="btn" href="#rules">Read the rules</a>
+        </div>
+      </div>
+      <div class="reveal">
+        <div class="panel comp-dates">
+          <div class="label">Entries close in</div>
+          <div class="countdown" id="countdown" aria-live="off"></div>
+          <dl>
+            <dt>Deadline</dt><dd data-c="deadlineLabel"></dd>
+            <dt>I play them</dt><dd data-c="reviewLabel"></dd>
+            <dt>Voting</dt><dd>Discord poll until Tuesday, December 8</dd>
+            <dt>Winner</dt><dd>Revealed <span data-c="winnerLabel"></span></dd>
+            <dt>Prize</dt><dd><span data-c="prizeValue">$25</span> of Robux or a <span data-c="prizeValue">$25</span> gift card, plus your name on my stream for a week</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main class="wrap">
+    <section class="section">
+      <div class="section-head"><h2>How it works</h2></div>
+      <ol class="steps">
+        <li class="panel reveal"><span class="step-n">1</span><h3>Pick a game</h3><p>Any game you've made, at any time. Old projects and brand new ones both count.</p></li>
+        <li class="panel reveal"><span class="step-n">2</span><h3>Send it in</h3><p>Fill in the form below, then post your entry in <span data-c="channel">#competition-submissions</span> on my Discord.</p></li>
+        <li class="panel reveal"><span class="step-n">3</span><h3>Watch me play it</h3><p>I test every entry <span data-c="reviewLabel"></span>.</p></li>
+        <li class="panel reveal"><span class="step-n">4</span><h3>The Discord votes</h3><p>After the stream, a poll goes up in my Discord. Everyone votes for their favourite until Tuesday, December 8.</p></li>
+        <li class="panel reveal"><span class="step-n">5</span><h3>Winner revealed</h3><p>The most votes wins, revealed <span data-c="winnerLabel"></span>. They pick their prize, and their name goes on my stream for a whole week.</p></li>
+      </ol>
+    </section>
+
+    <section class="section" id="rules">
+      <div class="section-head"><h2>Rules</h2></div>
+      <div class="comp-grid">
+        <div class="panel rules reveal">
+          <ol>
+            <li><b>Your own game.</b> You made it, or you made it with a team you're part of. Free assets and tutorials are fine, but no reuploads of someone else's game.</li>
+            <li><b>Made any time.</b> It doesn't have to be new. Finished games, demos and works in progress all count.</li>
+            <li><b>Accepted links:</b> a Roblox game, a GitHub link (a repo or a GitHub Pages game) or an itch.io page. Want to send another kind of link? Check with me on Discord first.</li>
+            <li><b>It has to be playable.</b> The link must be public and work when I open it on stream. Downloads need to run on Windows.</li>
+            <li><b>One entry per person.</b> Pick your best one. Need to fix your entry? Edit your post in <span data-c="channel">#competition-submissions</span>.</li>
+            <li><b>Keep it stream friendly.</b> Nothing hateful, sexual or gross. I can skip any game I can't show on stream.</li>
+            <li><b>Your entry counts once it's posted</b> in <span data-c="channel">#competition-submissions</span> on my Discord, before the deadline: <span data-c="deadlineLabel"></span>.</li>
+            <li><b>The Discord vote picks the winner.</b> The game with the most votes when the poll closes on Tuesday, December 8 wins. Voting for your own game is fine, but no alt accounts or vote trading. I can remove entries or votes that break the rules, and I'll post any rule change here.</li>
+          </ol>
+        </div>
+        <div class="side reveal">
+          <div class="panel">
+            <h3>How the winner is picked</h3>
+            <ul class="judge">
+              <li><b>Saturday, Dec 5: I play them all</b><span>I test every entry live on stream.</span></li>
+              <li><b>Until Tuesday: Discord votes</b><span>A poll in my Discord picks the community favourite.</span></li>
+              <li><b>Tuesday: winner revealed on stream</b><span>The game with the most votes wins.</span></li>
+            </ul>
+          </div>
+          <div class="panel prize-card">
+            <div class="label">The prize</div>
+            <div class="prize-big"><span data-c="prizeValue">$25</span></div>
+            <p>Your choice of <b>Robux</b> or an <b>Amazon gift card</b>. You can also ask for a different $25 gift card, but I can't promise every one.</p>
+            <p class="prize-plus"><b>Plus:</b> the winner's name goes on my stream for a whole week.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="enter">
+      <div class="section-head"><h2>Enter your game</h2></div>
+      <div class="panel form-panel reveal">
+        <form id="entry-form" novalidate>
+          <div class="form-grid">
+            <label class="field">
+              <span>Name to call you if you win <i>*</i></span>
+              <input name="name" required maxlength="60" autocomplete="nickname" placeholder="What I should call you on stream">
+            </label>
+            <label class="field">
+              <span>Game title <i>*</i></span>
+              <input name="gameTitle" required maxlength="80" placeholder="My Awesome Game">
+            </label>
+
+            <fieldset class="field wide">
+              <legend>Where does your game live? <i>*</i></legend>
+              <div class="seg">
+                <label><input type="radio" name="linkType" value="roblox" required><span>Roblox</span></label>
+                <label><input type="radio" name="linkType" value="github"><span>GitHub</span></label>
+                <label><input type="radio" name="linkType" value="itch"><span>itch.io</span></label>
+                <label><input type="radio" name="linkType" value="other"><span>Something else</span></label>
+              </div>
+            </fieldset>
+            <div class="callout wide" id="other-note" hidden>
+              Other links need my OK first. <a data-link="discord" target="_blank" rel="noopener">Message me on Discord</a> with your link before you submit.
+              <label class="check"><input type="checkbox" name="otherOk"> <span>I've checked my link with Flynn</span></label>
+            </div>
+            <label class="field wide">
+              <span>Link to your game <i>*</i></span>
+              <input name="link" type="url" required maxlength="300" inputmode="url" placeholder="https://">
+              <small id="link-hint"></small>
+            </label>
+            <label class="field wide">
+              <span>How to play <em>(optional)</em></span>
+              <textarea name="howToPlay" maxlength="300" rows="2" placeholder="Controls, or anything I need to know to get started"></textarea>
+            </label>
+
+            <fieldset class="field wide">
+              <legend>If you win, which prize do you want? <i>*</i></legend>
+              <div class="seg">
+                <label><input type="radio" name="prize" value="robux" required><span><span data-c="prizeValue">$25</span> of Robux</span></label>
+                <label><input type="radio" name="prize" value="amazon"><span><span data-c="prizeValue">$25</span> Amazon gift card</span></label>
+                <label><input type="radio" name="prize" value="other"><span>Other <span data-c="prizeValue">$25</span> gift card (not guaranteed)</span></label>
+              </div>
+            </fieldset>
+            <label class="field wide" id="other-prize" hidden>
+              <span>Which gift card? <i>*</i></span>
+              <input name="otherPrize" maxlength="60" placeholder="e.g. Steam, Xbox, PlayStation, Visa">
+              <small>I'll try to get this one, but it's not guaranteed. If I can't, you can pick Robux or Amazon instead.</small>
+            </label>
+
+            <div class="wide checks">
+              <label class="check"><input type="checkbox" name="rulesOk" required> <span>I made this game (or helped make it), and I've read the rules.</span></label>
+            </div>
+            <input class="trap" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+          </div>
+          <div class="form-foot">
+            <button class="btn fire" id="submit" type="submit">Get my entry</button>
+            <p class="form-status" id="form-status" role="status"></p>
+          </div>
+        </form>
+        <div class="entry-done" id="entry-done" hidden></div>
+        <div class="entry-done" id="form-closed" hidden>
+          <h3>Entries are closed</h3>
+          <p>Thanks to everyone who entered! I play every entry <span data-c="reviewLabel"></span>, then the Discord votes, and the winner is revealed <span data-c="winnerLabel"></span>.</p>
+          <div class="btn-row"><a class="btn yt" data-link="youtube" target="_blank" rel="noopener">Watch on YouTube</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Questions</h2></div>
+      <div class="faq reveal">
+        <details class="panel"><summary>Can I enter a game I made a long time ago?</summary><p>Yes. Any game you've worked on counts, no matter when you made it.</p></details>
+        <details class="panel"><summary>Can I enter a game I made with friends?</summary><p>Yes, as long as you were part of the team. Pick one person to enter it, and that person gets the prize if it wins.</p></details>
+        <details class="panel"><summary>My game is on Game Jolt, Newgrounds or somewhere else. Can I still enter?</summary><p>Probably. <a data-link="discord" target="_blank" rel="noopener">Message me on Discord</a> with the link first so I can make sure I can play it on stream.</p></details>
+        <details class="panel"><summary>How do I get my prize if I win?</summary><p>I'll message you on Discord after the stream, and we'll sort out the easiest way to get your Robux or gift card to you. If you asked for a different gift card, I'll try to get that one, but if I can't, you can pick Robux or Amazon instead.</p></details>
+        <details class="panel"><summary>How is the winner picked?</summary><p>After I play every entry on stream, I put up a poll in my Discord. Everyone in the server can vote until Tuesday, December 8, and I reveal the winner on stream that day. <a data-link="discord" target="_blank" rel="noopener">Join the Discord</a> to vote.</p></details>
+        <details class="panel"><summary>Will you play every game?</summary><p>I'll play every entry that follows the rules on Saturday's stream.</p></details>
+      </div>
+      <div class="live-band reveal">
+        <div>
+          <h2>Watch it live, then vote</h2>
+          <p>Every entry gets played on stream on Saturday. Subscribe so you don't miss your game coming up, and join the Discord to vote for the winner.</p>
+        </div>
+        <div class="btn-row">
+          <a class="btn yt" data-link="youtube" target="_blank" rel="noopener">Subscribe on YouTube</a>
+          <a class="btn" data-link="discord" target="_blank" rel="noopener">Join the Discord</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="footer"></footer>
+
+  <script src="js/space.js?v=14"></script>
+  <script src="js/fire.js?v=14"></script>
+  <script src="js/games.js?v=14"></script>
+  <script src="js/main.js?v=14"></script>
+  <script src="js/competition.js?v=14"></script>
+</body>
+</html>

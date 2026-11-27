@@ -71,6 +71,7 @@
         <a class="brand" href="./"><span class="logo" aria-hidden="true"></span><span>${esc(first)}</span>${rest.length ? " " + esc(rest.join(" ")) : ""}</a>
         <nav class="nav-links">
           <a href="./#games" class="hide-sm">Games</a>
+          <a href="competition.html" class="comp-link${document.body.dataset.page === "competition" ? " on" : ""}">Competition</a>
           ${socialLinks("")}
         </nav>
       </div>`;
@@ -131,6 +132,18 @@
             <span class="btn ${isPlayable(f) ? "play" : ""}">${ICON.play} ${isPlayable(f) ? "Play " + esc(f.short || f.title) : "See the game"}</span>
           </div>
         </a>`;
+    }
+
+    if (SITE.competitionBanner) {
+      document.getElementById("games").insertAdjacentHTML(
+        "afterbegin",
+        `<a class="comp-teaser reveal" href="competition.html">
+          <span class="label">New · Game dev competition</span>
+          <b>Made a game? Enter it and I'll play it live on stream.</b>
+          <span class="sub">Win $25 of Robux or a $25 Amazon gift card.</span>
+          <span class="btn fire">Enter now</span>
+        </a>`
+      );
     }
 
     // Filters + search
@@ -267,4 +280,5 @@
   footer();
   if (document.body.dataset.page === "home") home();
   if (document.body.dataset.page === "game") gamePage();
+  if (document.body.dataset.page === "competition") reveal();
 })();

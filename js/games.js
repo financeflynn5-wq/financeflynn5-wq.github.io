@@ -17,6 +17,8 @@ window.SITE = {
   tagline: "Games I build live on stream. Play them free in your browser.",
   // The big spotlight card at the top of the home page (a game id from the list below)
   featured: "steelbind",
+  // Show the competition banner on the home page (false hides it)
+  competitionBanner: true,
   // Paste your links here. Any left empty are hidden.
   links: {
     youtube: "https://www.youtube.com/@Future_Flynn5",
