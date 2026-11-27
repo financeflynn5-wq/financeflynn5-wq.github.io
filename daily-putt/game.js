@@ -6,6 +6,7 @@ import { EffectComposer } from "./vendor/postprocessing/EffectComposer.js";
 import { RenderPass } from "./vendor/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "./vendor/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "./vendor/postprocessing/OutputPass.js";
+import { RoundedBoxGeometry } from "./vendor/postprocessing/RoundedBoxGeometry.js";
 
 // ───────────────────────── Tuning (the numbers worth playing with) ─────────────────────────
 const TUNE = {
@@ -850,83 +851,244 @@ const trail = new THREE.Line(new THREE.BufferGeometry().setAttribute("position",
   new THREE.LineBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55 }));
 trail.frustumCulled = false; trail.visible = false;
 const beacon = solid(CYL, basic("#ffe14d", 0.4), 0.6, 40); beacon.castShadow = false;
-function makeGolfer(withClub) { // faces +x
-  const g = new THREE.Group(), navy = std("#26334d"), shirt = std("#f2f2f2"), skin = std("#e9b990", 0.7), red = std("#c8321e");
-  for (const y of [-0.3, 0.3]) { const leg = solid(CYL, navy, 0.24, 1.5, 0, 0.24); leg.position.y = y; g.add(leg); }
-  for (const y of [-0.3, 0.3]) { const shoe = solid(BOX, std("#f5f5f5"), 0.7, 0.22, 0, 0.36); shoe.position.set(0.18, y, 0.11); g.add(shoe); }
-  const torso = solid(CYL, shirt, 0.5, 1.35, 1.5, 0.36); g.add(torso);
-  g.add(solid(CYL, std("#1d2638"), 0.52, 0.16, 1.45, 0.38)); // belt
-  const head = new THREE.Mesh(SPHERE, skin); head.scale.setScalar(0.4); head.position.z = 3.3; head.castShadow = true; g.add(head);
-  const cap = new THREE.Mesh(SPHERE, red); cap.scale.set(0.42, 0.42, 0.3); cap.position.z = 3.48; cap.castShadow = true; g.add(cap);
-  const brim = solid(BOX, red, 0.5, 0.05, 3.42, 0.56); brim.position.x = 0.5; g.add(brim);
-  if (withClub) {
-    const arms = new THREE.Group(); arms.position.set(0.3, 0, 2.7);
-    const club = new THREE.Mesh(CYL, std("#d0d3d8", 0.25)); club.scale.set(0.045, 3.0, 0.045); club.rotation.x = Math.PI / 2; club.rotation.y = 0; club.castShadow = true;
-    const shaft = new THREE.Group(); shaft.add(club); shaft.position.set(0.55, 0, -1.3); shaft.rotation.y = -0.4;
-    const headC = new THREE.Mesh(BOX, std("#2a2a2a", 0.3)); headC.scale.set(0.45, 0.22, 0.2); headC.position.set(0.12, 0, -1.5); shaft.add(headC);
-    const arm = new THREE.Mesh(CYL, shirt); arm.scale.set(0.15, 1.2, 0.15); arm.rotation.x = Math.PI / 2;
-    const armG = new THREE.Group(); armG.add(arm); armG.position.set(0.2, 0, -0.5); armG.rotation.y = -0.4;
-    arm.castShadow = true;
-    arms.add(shaft, armG); g.add(arms); g.userData.arms = arms;
+// ── People and vehicles: low-poly figures with joints, so they can swing, sit, steer and wave. ──
+const flat = (c, rough = 0.8) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0, flatShading: true });
+const part = (geo, mat, parent, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+const joint = (parent, x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; };
+const rbox = (parent, mat, x, y, z, sx, sy, sz, rad = 0.12) => part(new RoundedBoxGeometry(sx, sy, sz, 1, Math.min(rad, sx / 2.1, sy / 2.1, sz / 2.1)), mat, parent, x, y, z);
+const limbGeo = (rad, len) => new THREE.CapsuleGeometry(rad, len, 2, 7).rotateX(Math.PI / 2).translate(0, 0, -len / 2); // hangs down from its joint
+const ball3 = (rad, detail = 1) => new THREE.IcosahedronGeometry(rad, detail);
+const tube = (r1, r2, len, sides = 8) => new THREE.CylinderGeometry(r1, r2, len, sides).rotateX(Math.PI / 2); // stands along z
+const DOME = new THREE.SphereGeometry(1, 9, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2);
+const dark = flat("#1b1b1f", 0.6), chrome = new THREE.MeshStandardMaterial({ color: "#d5d9de", roughness: 0.3, metalness: 0.1, flatShading: true });
+
+// A person facing +x with feet at height 0. Returns the joints that the animation turns.
+function makePerson(o) {
+  const root = new THREE.Group(), J = { root };
+  const shirt = flat(o.shirt), trim = flat(o.trim || "#ffffff"), pants = flat(o.pants), skin = flat(o.skin || "#f2c49c", 0.65), hat = flat(o.hat, 0.7), shoe = flat(o.shoes || "#ffffff", 0.5), ink = flat("#2a2320");
+  const body = J.body = joint(root, 0, 0, 1.72); // the hips: everything hangs off this
+  part(ball3(0.42), pants, body).scale.set(0.85, 1.05, 0.72);
+  part(tube(0.4, 0.4, 0.13, 9), flat(o.belt || "#3a2a1c"), body, 0, 0, 0.2).scale.set(0.82, 1, 1);
+  J.legs = [-1, 1].map((s) => {
+    const hip = joint(body, 0, s * 0.24, -0.05); part(limbGeo(0.2, 0.62), pants, hip);
+    const knee = joint(hip, 0, 0, -0.78); part(limbGeo(0.16, 0.6), pants, knee);
+    part(tube(0.19, 0.17, 0.16, 7), trim, knee, 0, 0, -0.62);                  // sock
+    part(ball3(0.2), shoe, knee, 0.14, 0, -0.8).scale.set(1.9, 1.05, 0.8);
+    part(ball3(0.2), ink, knee, 0.14, 0, -0.9).scale.set(1.95, 1.08, 0.3);      // sole
+    return { hip, knee };
+  });
+  const torso = J.torso = joint(body, 0, 0, 0.12); torso.rotation.order = "YZX";
+  part(new THREE.CapsuleGeometry(0.42, 0.6, 2, 8).rotateX(Math.PI / 2), shirt, torso, 0, 0, 0.62).scale.set(0.8, 1.06, 1);
+  part(tube(0.345, 0.35, 0.12, 9), trim, torso, 0, 0, 0.72).scale.set(0.82, 1.08, 1); // chest stripe
+  part(tube(0.19, 0.25, 0.16, 8), trim, torso, 0, 0, 1.3);                    // collar
+  const head = J.head = joint(torso, 0, 0, 1.36);
+  part(tube(0.15, 0.17, 0.2, 7), skin, head, 0, 0, 0.04);
+  part(ball3(0.5), skin, head, 0, 0, 0.52);
+  part(ball3(0.5), flat(o.hair || "#5b3b22", 0.9), head, -0.09, 0, 0.56).scale.set(1, 1.03, 0.98);
+  for (const s of [-1, 1]) {
+    part(ball3(0.07, 0), ink, head, 0.45, s * 0.18, 0.56);                    // eyes
+    part(ball3(0.11, 0), skin, head, 0.02, s * 0.5, 0.5);                     // ears
   }
+  part(ball3(0.08, 0), skin, head, 0.5, 0, 0.44);                             // nose
+  if (o.straw) { // wide straw hat
+    part(tube(0.95, 0.95, 0.06, 12), hat, head, 0, 0, 0.82);
+    part(DOME, hat, head, 0, 0, 0.82).scale.set(0.5, 0.5, 0.42);
+    part(tube(0.51, 0.51, 0.1, 12), flat(o.band || "#c8321e"), head, 0, 0, 0.88);
+  } else { // golf cap with a brim
+    part(DOME, hat, head, 0, 0, 0.66).scale.set(0.54, 0.54, 0.44);
+    part(tube(0.4, 0.4, 0.06, 10), hat, head, 0.42, 0, 0.68).scale.set(1.15, 0.95, 1);
+    part(ball3(0.07, 0), trim, head, 0, 0, 1.1);
+  }
+  // Both arms hang from one rig at the shoulders, so a two-handed swing is a single turn.
+  const rig = J.rig = joint(torso, 0, 0, 1.12);
+  J.arms = [-1, 1].map((s) => {
+    const sh = joint(rig, 0, s * 0.5, 0); part(limbGeo(0.15, 0.42), shirt, sh);
+    part(tube(0.16, 0.16, 0.08, 7), trim, sh, 0, 0, -0.5);                    // sleeve cuff
+    const el = joint(sh, 0, 0, -0.6); part(limbGeo(0.12, 0.5), skin, el);
+    part(ball3(0.16, 0), s > 0 && o.glove ? trim : skin, el, 0, 0, -0.62);
+    return { sh, el };
+  });
+  if (o.club) {
+    for (const [i, a] of J.arms.entries()) a.sh.rotation.x = (i ? -1 : 1) * 0.42; // hands meet on the grip
+    const club = J.club = joint(rig, 0, 0, -1.08); club.rotation.y = -0.12;
+    part(tube(0.05, 0.05, 0.5, 6), ink, club, 0, 0, 0.05);                    // grip
+    part(tube(0.03, 0.03, 2.1, 5), chrome, club, 0, 0, -1.05);
+    J.wood = part(ball3(0.2), flat("#22262e", 0.4), club, 0.12, 0, -2.08); J.wood.scale.set(1.25, 0.8, 0.7);
+    J.putter = rbox(club, chrome, 0.1, 0, -2.1, 0.16, 0.5, 0.14, 0.04);
+  }
+  return J;
+}
+// Sit a person down: seat height is where its root is placed.
+function sit(J, reach = 1.0) {
+  J.body.position.z = 0.3;
+  for (const l of J.legs) { l.hip.rotation.y = -1.42; l.knee.rotation.y = 1.3; }
+  J.torso.rotation.y = 0.04;
+  J.rig.rotation.y = -reach;
+  for (const [i, a] of J.arms.entries()) { a.sh.rotation.x = (i ? -1 : 1) * 0.16; a.el.rotation.y = -0.35; }
+}
+// A wheel that can spin: a chunky tyre, a hub and spokes.
+function makeWheel(parent, x, y, z, rad, hubCol = "#f4f4f4") {
+  const holder = joint(parent, x, y, z), spin = joint(holder);
+  part(new THREE.CylinderGeometry(rad, rad, rad * 0.62, 12), dark, spin);
+  part(new THREE.CylinderGeometry(rad * 0.55, rad * 0.55, rad * 0.68, 8), flat(hubCol, 0.4), spin);
+  for (const a of [0, Math.PI / 2]) { const sp = part(BOX, dark, spin); sp.scale.set(rad * 1.02, rad * 0.7, rad * 0.16); sp.rotation.y = a; }
+  return { holder, spin, rad };
+}
+function steeringWheel(parent, x, y, z) {
+  const col = part(tube(0.05, 0.05, 1.1, 5), dark, parent, x + 0.42, y, z - 0.36); col.rotation.y = 0.85;
+  const g = joint(parent, x, y, z); g.rotation.y = -0.6;
+  part(new THREE.TorusGeometry(0.33, 0.06, 5, 10), dark, g).rotation.y = Math.PI / 2;
   return g;
 }
-// The same figure sitting down, hands out on a steering wheel. Faces +x, with the seat at height 0.
-function makeSitter(shirtCol = "#f2f2f2", capCol = "#c8321e") {
-  const g = new THREE.Group(), navy = std("#26334d"), shirt = std(shirtCol), skin = std("#e9b990", 0.7), cap = std(capCol), put = (m) => { m.castShadow = true; g.add(m); return m; };
-  for (const y of [-0.28, 0.28]) {
-    const thigh = put(new THREE.Mesh(BOX, navy)); thigh.scale.set(1.0, 0.26, 0.26); thigh.position.set(0.45, y, 0.14);
-    const shin = put(new THREE.Mesh(BOX, navy)); shin.scale.set(0.24, 0.24, 0.8); shin.position.set(0.85, y, -0.3);
-    const shoe = put(new THREE.Mesh(BOX, std("#f5f5f5"))); shoe.scale.set(0.6, 0.3, 0.2); shoe.position.set(1.0, y, -0.72);
-    const arm = put(new THREE.Mesh(BOX, shirt)); arm.scale.set(0.95, 0.15, 0.15); arm.position.set(0.5, y * 1.25, 1.02); arm.rotation.y = 0.12;
+
+const golfer = makePerson({ shirt: "#2f7bff", trim: "#ffffff", pants: "#f4ead2", hat: "#e5352b", glove: true, club: true });
+const golferMesh = golfer.root; golferMesh.scale.setScalar(1.0);
+
+// The golf cart. The shell rides on springs above the wheels; body is built facing +x.
+const cartMesh = new THREE.Group(), cartBody = new THREE.Group(), cartShell = new THREE.Group();
+cartMesh.add(cartBody); cartBody.add(cartShell);
+const cartWheels = [], driver = makePerson({ shirt: "#2f7bff", trim: "#ffffff", pants: "#f4ead2", hat: "#e5352b", glove: true });
+let cartSteer = null, pennant = null;
+const cartBags = [];
+{
+  const white = flat("#fbf7ee", 0.35), teal = flat("#12b3a6", 0.45), tan = flat("#e9a15c", 0.8), glass = new THREE.MeshStandardMaterial({ color: "#bfe9ff", transparent: true, opacity: 0.35, roughness: 0.1 });
+  const s = cartShell;
+  rbox(s, dark, 0, 0, 0.78, 4.7, 2.3, 0.3, 0.1);                 // chassis
+  rbox(s, white, -0.15, 0, 1.2, 4.5, 2.55, 0.6, 0.22);           // tub
+  rbox(s, teal, -0.15, 0, 0.98, 4.56, 2.61, 0.16, 0.06);         // colour band
+  rbox(s, teal, 1.75, 0, 1.62, 1.3, 2.35, 0.75, 0.3);            // front cowl
+  rbox(s, white, 1.78, 0, 1.98, 0.9, 1.5, 0.12, 0.05);           // cowl badge
+  rbox(s, dark, 2.42, 0, 0.82, 0.22, 2.5, 0.26, 0.1);            // bumpers
+  rbox(s, dark, -2.42, 0, 0.82, 0.22, 2.5, 0.26, 0.1);
+  for (const y of [-0.78, 0.78]) { part(ball3(0.24), basic("#fff3a0"), s, 2.36, y, 1.6).scale.set(0.5, 1, 1); part(ball3(0.13, 0), basic("#ff4a3a"), s, -2.4, y * 1.3, 1.25); }
+  rbox(s, white, -0.75, 0, 1.6, 1.35, 2.3, 0.36, 0.12);          // seat base
+  rbox(s, tan, -0.72, 0, 1.87, 1.25, 2.2, 0.22, 0.1);            // cushion
+  rbox(s, tan, -1.3, 0, 2.5, 0.3, 2.2, 1.1, 0.13).rotation.y = -0.12; // backrest
+  for (const y of [-1.2, 1.2]) rbox(s, dark, -0.9, y, 2.25, 1.0, 0.08, 0.08, 0.03); // arm rails
+  rbox(s, white, -2.0, 0, 1.6, 0.95, 2.4, 0.5, 0.15);            // bag deck
+  for (const [y, col, lean] of [[0.55, "#e5352b", 0.1], [-0.55, "#ffb81f", -0.06]]) { // two golf bags with clubs
+    const bag = joint(s, -2.0, y, 1.8); bag.rotation.y = -0.16; bag.rotation.x = lean; cartBags.push(bag);
+    part(tube(0.4, 0.34, 1.9, 8), flat(col), bag, 0, 0, 0.95);
+    part(tube(0.42, 0.42, 0.16, 8), white, bag, 0, 0, 1.5); part(tube(0.38, 0.38, 0.14, 8), white, bag, 0, 0, 0.5);
+    rbox(bag, flat(col), 0.36, 0, 0.9, 0.2, 0.4, 0.7, 0.08);     // pocket
+    for (const [cx, cy, h] of [[0.14, 0.1, 2.5], [-0.12, 0.14, 2.7], [0, -0.16, 2.35]]) {
+      part(tube(0.03, 0.03, h - 1.6, 5), chrome, bag, cx, cy, 1.6 + (h - 1.6) / 2);
+      part(ball3(0.14, 0), h > 2.6 ? flat("#22262e") : chrome, bag, cx + 0.08, cy, h).scale.set(1.3, 0.8, 0.8);
+    }
   }
-  g.add(solid(CYL, shirt, 0.5, 1.3, 0.02, 0.36));
-  const head = put(new THREE.Mesh(SPHERE, skin)); head.scale.setScalar(0.4); head.position.z = 1.8;
-  const top = put(new THREE.Mesh(SPHERE, cap)); top.scale.set(0.42, 0.42, 0.3); top.position.z = 1.98;
-  const brim = solid(BOX, cap, 0.5, 0.05, 1.92, 0.56); brim.position.x = 0.5; g.add(brim);
-  return g;
+  for (const [x, y, lean] of [[1.25, 1.18, 0.16], [1.25, -1.18, 0.16], [-1.75, 1.18, 0], [-1.75, -1.18, 0]]) {
+    const post = part(tube(0.06, 0.06, 3.0, 6), chrome, s, x - lean * 1.2, y, 3.0); post.rotation.y = -lean;
+  }
+  rbox(s, teal, -0.3, 0, 4.58, 4.0, 2.85, 0.2, 0.09);            // roof
+  for (const y of [-0.95, 0, 0.95]) rbox(s, white, -0.3, y, 4.6, 4.04, 0.45, 0.2, 0.09); // roof stripes
+  rbox(s, white, -0.3, 0, 4.44, 3.8, 2.6, 0.12, 0.05);
+  const shield = part(new THREE.BoxGeometry(0.06, 2.25, 2.3), glass, s, 1.05, 0, 3.25); shield.rotation.y = -0.16; shield.castShadow = false;
+  cartSteer = steeringWheel(s, 0.36, 0.5, 2.62);
+  const pole = part(tube(0.025, 0.025, 2.2, 5), chrome, s, -2.2, -1.2, 5.6);
+  pennant = joint(s, -2.2, -1.2, 6.5);
+  const tri = new THREE.Mesh(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0.3, 0, 0, -0.3, -1.1, 0, 0], 3)), new THREE.MeshBasicMaterial({ color: "#ff8a1f", side: THREE.DoubleSide }));
+  pennant.add(tri);
+  for (const [x, y] of [[1.55, 1.3], [1.55, -1.3], [-1.55, 1.3], [-1.55, -1.3]]) {
+    cartWheels.push(makeWheel(cartBody, x, y, 0.62, 0.62));
+    rbox(s, teal, x, y * 0.98, 1.36, 1.5, 0.5, 0.14, 0.06);       // fender
+  }
+  sit(driver, 1.0); driver.root.scale.setScalar(0.8); driver.root.position.set(-0.6, 0.5, 1.98); s.add(driver.root);
 }
-function steering(parent, x, y, z) { // a wheel on a short column
-  const col = boxOn(parent, dark, x + 0.3, y, z - 0.4, 0.1, 0.1, 1.0); col.rotation.y = 0.6;
-  const w = new THREE.Mesh(CYL, dark); w.scale.set(0.34, 0.07, 0.34); w.rotation.z = Math.PI / 2; w.rotation.y = 0; w.position.set(x, y, z); w.castShadow = true; parent.add(w);
-}
-const golferMesh = makeGolfer(true);
-const cartMesh = new THREE.Group(), cartBody = new THREE.Group(); // body is built facing +x
-cartMesh.add(cartBody);
-const dark = std("#161616", 0.6);
-function wheel(parent, x, y, z, rad) {
-  const w = new THREE.Mesh(CYL, dark); w.scale.set(rad, 0.5, rad); w.position.set(x, y, z); w.castShadow = true; parent.add(w);
-  const hub = new THREE.Mesh(CYL, std("#d9d9d9", 0.3)); hub.scale.set(rad * 0.5, 0.54, rad * 0.5); hub.position.set(x, y, z); parent.add(hub);
-}
-function boxOn(parent, m, x, y, z, sx, sy, sz) { const b = new THREE.Mesh(BOX, m); b.position.set(x, y, z); b.scale.set(sx, sy, sz); b.castShadow = true; parent.add(b); return b; }
+
+// The greenkeeper's ride-on mower, which drives back and forth across the fairway.
+const mowerMesh = new THREE.Group(), mowerShell = new THREE.Group(), mowerWheels = [];
+mowerMesh.add(mowerShell);
+const keeper = makePerson({ shirt: "#ff9a2e", trim: "#fff3c4", pants: "#2f8f4a", hat: "#f1cf6b", straw: true, hair: "#3a2a1c", shoes: "#6b4a2c" });
+const mowerLamp = basic("#ff9d1c");
 {
-  const white = std("#f4f4ee", 0.35), blue = std("#1f5fa8", 0.7), chrome = std("#cfd3d8", 0.25);
-  boxOn(cartBody, white, 0, 0, 1.0, 4.8, 2.6, 0.9);             // body
-  boxOn(cartBody, white, 1.9, 0, 1.6, 1.0, 2.4, 0.5);           // nose
-  boxOn(cartBody, dark, 0, 0, 0.62, 4.9, 2.7, 0.18);            // bumper strip
-  boxOn(cartBody, blue, -0.5, 0, 1.75, 1.3, 2.3, 0.6);          // seat
-  boxOn(cartBody, blue, -1.2, 0, 2.3, 0.3, 2.3, 1.2);           // seat back
-  boxOn(cartBody, white, -0.3, 0, 4.4, 3.6, 2.7, 0.18);         // roof
-  boxOn(cartBody, new THREE.MeshStandardMaterial({ color: "#bfe3ff", transparent: true, opacity: 0.35, roughness: 0.1 }), 1.25, 0, 3.0, 0.06, 2.3, 1.9).rotation.y = -0.25; // windshield
-  boxOn(cartBody, std("#3a2a1a"), -2.1, 0, 2.0, 0.7, 1.6, 1.8);  // golf bag
-  for (const [x, y] of [[1.3, 1.2], [1.3, -1.2], [-1.9, 1.2], [-1.9, -1.2]]) boxOn(cartBody, chrome, x, y, 2.9, 0.12, 0.12, 2.9);
-  boxOn(cartBody, basic("#fff3a0"), 2.42, 0.8, 1.3, 0.1, 0.5, 0.3); boxOn(cartBody, basic("#fff3a0"), 2.42, -0.8, 1.3, 0.1, 0.5, 0.3); // headlights
-  for (const [x, y] of [[1.5, 1.35], [1.5, -1.35], [-1.5, 1.35], [-1.5, -1.35]]) wheel(cartBody, x, y, 0.65, 0.65);
+  const red = flat("#e0352b", 0.4), yellow = flat("#ffcf2e", 0.5), s = mowerShell;
+  rbox(s, red, -0.15, 0, 0.98, 3.1, 1.6, 0.6, 0.2);              // body
+  rbox(s, red, 1.0, 0, 1.55, 1.5, 1.45, 0.75, 0.28);             // engine hood
+  rbox(s, yellow, 1.0, 0, 1.95, 1.2, 0.3, 0.06, 0.02);           // hood stripe
+  rbox(s, dark, 1.78, 0, 1.5, 0.1, 1.1, 0.5, 0.04);              // grille
+  for (const y of [-0.5, 0.5]) part(ball3(0.14, 0), basic("#fff3a0"), s, 1.8, y, 1.78);
+  rbox(s, yellow, 2.05, 0, 0.5, 1.3, 2.9, 0.34, 0.12);           // cutting deck
+  rbox(s, dark, 2.05, 0, 0.36, 1.36, 2.96, 0.12, 0.04);
+  rbox(s, yellow, 2.05, -1.65, 0.55, 0.7, 0.5, 0.3, 0.08).rotation.x = 0.4; // chute where the cuttings fly out
+  part(tube(0.07, 0.07, 1.0, 6), chrome, s, 1.15, 0.5, 2.3); part(tube(0.1, 0.1, 0.3, 6), dark, s, 1.15, 0.5, 2.85); // exhaust
+  rbox(s, dark, -0.95, 0, 1.62, 0.95, 1.15, 0.36, 0.14);         // seat
+  rbox(s, dark, -1.42, 0, 2.3, 0.24, 1.15, 1.1, 0.1).rotation.y = -0.1;
+  for (const y of [-1.02, 1.02]) rbox(s, red, -1.0, y, 1.6, 1.7, 0.55, 0.14, 0.06); // rear fenders
+  part(tube(0.04, 0.04, 1.4, 5), dark, s, -1.6, 0.5, 3.3);
+  part(ball3(0.17, 0), mowerLamp, s, -1.6, 0.5, 4.05);            // flashing lamp
+  steeringWheel(s, -0.1, 0, 2.5);
+  for (const [x, y, rad] of [[1.0, 0.95, 0.48], [1.0, -0.95, 0.48], [-1.0, 1.02, 0.74], [-1.0, -1.02, 0.74]]) mowerWheels.push(makeWheel(mowerMesh, x, y, rad, rad, "#ffcf2e"));
+  sit(keeper, 1.0); keeper.root.scale.setScalar(0.78); keeper.root.position.set(-0.95, 0, 1.8); s.add(keeper.root);
 }
-const driver = makeSitter(); driver.scale.setScalar(0.82); driver.position.set(-0.6, 0.5, 2.05); cartBody.add(driver);
-steering(cartBody, 0.42, 0.5, 2.95);
-// The greenkeeper's mower, which drives back and forth across the fairway.
-const mowerMesh = new THREE.Group();
-{
-  const red = std("#c3271b", 0.4);
-  boxOn(mowerMesh, red, 0, 0, 0.8, 3.2, 1.9, 0.6);             // low body
-  boxOn(mowerMesh, red, 1.0, 0, 1.4, 1.2, 1.5, 0.6);           // engine hood
-  boxOn(mowerMesh, dark, 2.0, 0, 0.45, 1.0, 2.6, 0.35);         // cutting deck
-  boxOn(mowerMesh, dark, -0.95, 0, 1.4, 0.9, 1.1, 0.6);         // seat
-  boxOn(mowerMesh, dark, -1.45, 0, 2.15, 0.2, 1.1, 1.0);        // seat back
-  for (const [x, y] of [[1.0, 1.0], [1.0, -1.0], [-1.0, 1.05], [-1.0, -1.05]]) wheel(mowerMesh, x, y, 0.55, x < 0 ? 0.7 : 0.5);
-  const keeper = makeSitter("#3f8f4a", "#f2c230"); keeper.scale.setScalar(0.8); keeper.position.set(-0.95, 0, 1.7); mowerMesh.add(keeper);
-  steering(mowerMesh, -0.12, 0, 2.58);
+// Bring the people and vehicles to life each frame.
+const anim = { arm: 0, from: -2, steer: 0, lastA: 0, lastV: 0, acc: 0, mx: 0, my: 0, puff: 0 };
+function animate(dt, now) {
+  const clampN = (v, a, b) => Math.max(a, Math.min(b, v)), ease = (cur, to, rate) => cur + (to - cur) * Math.min(1, dt * rate);
+  // Golfer: address the ball, wind up with the drag, swing through and hold the finish.
+  const J = golfer, putting = onGreen(), finish = putting ? 0.7 : 2.75;
+  if (G.swing === 0) anim.from = anim.arm;
+  G.swing = Math.min(1, G.swing + dt * (putting ? 2.4 : 3.4));
+  let A;
+  if (G.mode === "done") A = 0;
+  else if (G.swing < 1) A = lerp(anim.from, finish, 1 - Math.pow(1 - G.swing, 2.4));
+  else if (G.mode === "flight") A = ease(anim.arm, finish * 0.9, 3);
+  else A = ease(anim.arm, G.mode === "aim" && G.aim ? (putting ? -0.12 - G.aim.p * 0.6 : -0.5 - G.aim.p * 2.1) : Math.sin(now * 2.3) * 0.06, 14);
+  anim.arm = A;
+  const cheer = G.mode === "done", breathe = Math.sin(now * 2.1) * 0.02, through = Math.max(0, A);
+  J.wood.visible = !putting; J.putter.visible = putting;
+  J.body.position.z = 1.66 + breathe + (cheer ? Math.abs(Math.sin(now * 7)) * 0.9 : 0);
+  J.body.rotation.z = clampN(A * 0.14, -0.3, 0.45);
+  J.torso.rotation.set(0, cheer ? 0 : putting ? 0.42 : 0.3, clampN(A * 0.3, -0.75, 0.9));
+  J.rig.rotation.set(cheer ? Math.sin(now * 14) * 0.25 : A, cheer ? -2.7 : -0.2, 0);
+  J.head.rotation.set(0, through > 1.2 || cheer ? -0.25 : 0.1, through > 1.2 ? ease(J.head.rotation.z, 1.0, 8) : clampN(-A * 0.3, -0.5, 0.6));
+  J.legs.forEach((l, i) => { // knees flex; the back foot comes up on its toe in the finish
+    const back = i === 0 ? through * 0.22 : 0;
+    l.hip.rotation.y = cheer ? 0 : -0.28 - back * 0.4; l.knee.rotation.y = cheer ? 0 : 0.46 + back;
+  });
+
+  // Cart: springs, leaning into turns, spinning wheels, a driver who steers and bounces.
+  const c = G.cart, speed = Math.abs(c.v) / TUNE.cartSpeed;
+  let da = c.a - anim.lastA; da = Math.atan2(Math.sin(da), Math.cos(da));
+  anim.steer = ease(anim.steer, dt > 0 ? clampN(da / dt / TUNE.cartTurn, -1, 1) : 0, 8);
+  anim.acc = ease(anim.acc, dt > 0 ? clampN((c.v - anim.lastV) / dt / 60, -1, 1) : 0, 6);
+  anim.lastA = c.a; anim.lastV = c.v;
+  const rough = terrainAt(H, c.x, c.y) === "rough" ? 2 : 1, bump = (Math.sin(now * 13) * 0.03 + Math.sin(now * 21.7) * 0.02) * speed * rough;
+  cartShell.position.z = bump + Math.sin(now * 2) * 0.008;
+  cartShell.rotation.set(-anim.steer * speed * 0.09, -anim.acc * 0.07 + Math.sin(now * 17) * 0.006 * speed * rough, 0);
+  cartWheels.forEach((w, i) => { w.spin.rotation.y += (c.v * dt) / w.rad; if (i < 2) w.holder.rotation.z = anim.steer * 0.5; });
+  cartSteer.rotation.x = -anim.steer * 1.6;
+  cartBags.forEach((bag, i) => { bag.rotation.x = (i ? -0.06 : 0.1) + Math.sin(now * 15 + i * 2) * 0.05 * speed * rough + anim.steer * speed * 0.1; });
+  pennant.rotation.z = Math.sin(now * 9) * 0.35 + anim.steer * 0.6; pennant.scale.x = 0.85 + Math.sin(now * 13) * 0.15;
+  driver.root.visible = G.mode === "drive";
+  driver.root.position.z = 1.98 + Math.abs(bump) * 1.5;
+  driver.torso.rotation.set(anim.steer * speed * 0.16, 0.04 - anim.acc * 0.1, 0);
+  driver.head.rotation.set(0, 0, anim.steer * 0.55);
+  driver.rig.rotation.set(-anim.steer * 0.35, -1.0, 0);
+  if (speed > 0.55 && Math.random() < dt * 9) burst(c.x - Math.cos(c.a) * 2.4, c.y - Math.sin(c.a) * 2.4, heightAt(H, c.x, c.y), BITS[terrainAt(H, c.x, c.y)] || BITS.rough, 1, 4);
+
+  // Mower: shakes, puffs smoke, throws cuttings, and the greenkeeper waves when you come close.
+  const o = H.mower;
+  if (o) {
+    const moved = Math.hypot(o.x - anim.mx, o.y - anim.my), near = dist(o.x, o.y, cam.fx, cam.fy);
+    anim.mx = o.x; anim.my = o.y;
+    for (const w of mowerWheels) w.spin.rotation.y += Math.min(moved, 2) / w.rad;
+    mowerShell.position.z = Math.sin(now * 46) * 0.018; mowerShell.rotation.x = Math.sin(now * 31) * 0.008;
+    mowerLamp.color.set(Math.sin(now * 8) > 0 ? "#ffb21c" : "#7a3a00");
+    const wave = near < 40;
+    keeper.rig.rotation.set(0, -1.0, 0);
+    keeper.arms[1].sh.rotation.set(wave ? -0.9 + Math.sin(now * 10) * 0.35 : -0.16, wave ? -1.5 : 0, 0);
+    keeper.arms[1].el.rotation.y = wave ? -0.2 : -0.35;
+    const look = Math.atan2(cam.fy - o.y, cam.fx - o.x) - o.a;
+    keeper.head.rotation.z = wave ? clampN(Math.atan2(Math.sin(look), Math.cos(look)), -1.3, 1.3) : Math.sin(now * 0.7) * 0.3;
+    keeper.root.position.z = 1.8 + Math.abs(Math.sin(now * 23)) * 0.02;
+    anim.puff -= dt;
+    if (anim.puff < 0 && near < 160) {
+      anim.puff = 0.12;
+      const ca = Math.cos(o.a), sa = Math.sin(o.a), z = heightAt(H, o.x, o.y);
+      burst(o.x + ca * 2 + sa * 1.9, o.y + sa * 2 - ca * 1.9, z + 0.3, ["#6fb84f", "#9bd45c", "#4c9a3c"], 1, 6);
+      if (Math.random() < 0.4) burst(o.x + ca * 1.1 - sa * 0.5, o.y + sa * 1.1 + ca * 0.5, z + 2.9, ["#d9d9d9", "#bdbdbd"], 1, 2.5);
+    }
+  }
 }
 // Bits that fly up: turf, sand, splashes, confetti.
 const bits = [];
@@ -1385,20 +1547,16 @@ function draw(dt) {
   H.pin.visible = !(onGreen() && dist(b.x, b.y, H.cup.x, H.cup.y) < 6 && G.mode !== "done");
 
   const rx = Math.cos(cam.rot), ry = Math.sin(cam.rot);
-  golferMesh.visible = G.mode === "aim" || G.mode === "flight" || G.mode === "title";
-  const gx = G.golfer.x - rx * 1.7, gy = G.golfer.y - ry * 1.7;
+  golferMesh.visible = G.mode !== "drive";
+  const gx = G.golfer.x - rx * 2.1, gy = G.golfer.y - ry * 2.1;
   golferMesh.position.set(gx, gy, hAt(gx, gy));
   golferMesh.rotation.z = cam.rot;
-  // Swing: wind up while aiming, whip through on release.
-  G.swing = Math.min(1, G.swing + dt * 3.2);
-  const back = G.mode === "aim" && G.aim ? -0.4 - G.aim.p * 1.9 : 0;
-  golferMesh.userData.arms.rotation.x = G.swing < 1 ? lerp(-2.2, 2.4, G.swing) * (1 - G.swing * G.swing) : back;
 
   const c = G.cart, cs = slopeAt(H, c.x, c.y);
   cartMesh.position.set(c.x, c.y, hAt(c.x, c.y));
   cartMesh.quaternion.setFromUnitVectors(UPZ, tmp.set(-cs.x, -cs.y, 1).normalize()); // lean with the hill
   cartBody.rotation.z = c.a;
-  driver.visible = G.mode === "drive";
+  animate(dt, now);
 
   // Hide trees standing between the camera and what it follows.
   for (const o of H.obstacles) {
