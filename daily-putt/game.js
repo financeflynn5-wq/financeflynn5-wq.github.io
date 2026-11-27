@@ -79,14 +79,23 @@ function distToLine(line, x, y) {
   return best;
 }
 
+// The day's weather. Wind is the main challenge, so each kind has its own range of wind speeds.
+// wet slows a rolling ball and deadens its bounce. The rest is how the day looks.
+const WEATHER = {
+  sunny:  { name: "Sunny", chance: 0.3, wind: [4, 11], wet: 1, tint: [1, 1, 1], sat: 1.35, haze: 0, fog: ["#a3adc4", 1.45, 420, 2400], sun: ["#ffe9c0", 3.2], sky: 1.5, rain: 0 },
+  golden: { name: "Golden hour", chance: 0.2, wind: [3, 10], wet: 1, tint: [1.2, 0.84, 0.62], sat: 1.25, haze: 0.3, fog: ["#f0b98c", 1.25, 300, 1900], sun: ["#ffae66", 3.3], sky: 1.15, rain: 0 },
+  windy:  { name: "Windy", chance: 0.22, wind: [13, 22], wet: 1, tint: [0.86, 0.9, 1], sat: 0.85, haze: 0.1, fog: ["#a6b0c2", 1.2, 380, 2200], sun: ["#fff4e0", 2.5], sky: 1.7, rain: 0 },
+  rain:   { name: "Rain", chance: 0.16, wind: [7, 16], wet: 1.35, tint: [0.5, 0.55, 0.63], sat: 0.25, haze: 0.6, fog: ["#8e98a8", 0.8, 50, 750], sun: ["#dfe6f0", 0.9], sky: 2.0, rain: 1 },
+  mist:   { name: "Morning mist", chance: 0.12, wind: [0, 5], wet: 1.12, tint: [1, 1, 1], sat: 0.7, haze: 1, fog: ["#e3e9ee", 1.15, 20, 400], sun: ["#fff1d8", 1.9], sky: 1.8, rain: 0 },
+};
 function generateHole(seed) {
   const r = mulberry32(hashStr("daily-putt:" + seed));
   const rand = (a, b) => a + (b - a) * r();
   const sign = () => (r() < 0.5 ? -1 : 1);
 
-  const L = rand(430, 560); // a par 5
+  const L = rand(330, 430); // a par 4
   const ctrl = [[0, 0]];
-  for (let i = 1, x = 0; i <= 4; i++) { x += sign() * rand(18, 62); ctrl.push([x, (L * i) / 4]); } // up to four bends
+  for (let i = 1, x = 0; i <= 4; i++) { x += sign() * rand(14, 50); ctrl.push([x, (L * i) / 4]); } // up to four bends
   const o3 = ctrl[4][0];
   const line = [];
   for (let i = 0; i < 4; i++) {
@@ -194,7 +203,17 @@ function generateHole(seed) {
     break;
   }
 
-  const wind = { angle: rand(0, Math.PI * 2), mph: Math.round(rand(2, 15)) };
+  let weather = "sunny";
+  { // pick the day's weather, or take ?weather=rain and so on from the link
+    let t = r();
+    for (const k in WEATHER) { if (t < WEATHER[k].chance) { weather = k; break; } t -= WEATHER[k].chance; }
+    const asked = typeof location !== "undefined" && new URLSearchParams(location.search).get("weather");
+    if (WEATHER[asked]) weather = asked;
+  }
+  const wr = WEATHER[weather].wind;
+  const wind = { angle: rand(0, Math.PI * 2), mph: Math.round(rand(wr[0], wr[1])) };
+  // Trees turn colour on some days: autumn, blossom, or plain summer green.
+  const season = ["summer", "autumn", "blossom"][Math.floor(r() * 3)];
 
   // Rolling ground: a few long waves, plus a tilt on the green so putts break.
   const waves = [[260, 3.8], [150, 2.5], [80, 1.3], [48, 0.6]].map(([len, amp]) => {
@@ -205,7 +224,7 @@ function generateHole(seed) {
   const greenTilt = { x: Math.cos(ta) * tilt, y: Math.sin(ta) * tilt };
 
   const ramp = rand(-0.022, 0.022); // the whole hole climbs or drops from tee to green
-  const H = { seed, L, line, hw, green, cup, bounds, ponds, bunkers, obstacles, wind, path, waves, greenTilt, creek, bridge, ramp };
+  const H = { seed, L, line, hw, green, cup, bounds, ponds, bunkers, obstacles, wind, weather, season, wet: WEATHER[weather].wet, path, waves, greenTilt, creek, bridge, ramp };
   buildHeights(H);
   return H;
 }
@@ -390,21 +409,23 @@ function solid(geo, material, w, h, z = 0, d = w) {
 }
 const TONE = "\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n";
 
-// Sky with a sun, drifting clouds and far hills. These never change between holes.
-const skyU = { skyMap: { value: null }, skyOn: { value: 0 }, skyTurn: { value: 0.5947 - SUN_AZ / (Math.PI * 2) }, skyGain: { value: SKY_GAIN },
+// Sky with a sun and far hills. These never change between holes.
+const skyU = { skyTint: { value: new THREE.Vector3(1, 1, 1) }, skySat: { value: 1 }, skyHaze: { value: 0 }, skyMap: { value: null }, skyOn: { value: 0 }, skyTurn: { value: 0.5947 - SUN_AZ / (Math.PI * 2) }, skyGain: { value: SKY_GAIN },
   zenith: { value: SKY.zenith }, horizon: { value: SKY.horizon }, sunCol: { value: SKY.sun }, sunDir: { value: SUN_DIR } };
 skyU.skyMap.value = loadTex(HI ? "sky-8k.jpg" : "sky-4k.jpg", { srgb: true, done: () => { skyU.skyOn.value = 1; } });
 skyU.skyMap.value.wrapS = THREE.RepeatWrapping; skyU.skyMap.value.generateMipmaps = false; skyU.skyMap.value.minFilter = THREE.LinearFilter;
 // Colour of the sky in direction d: the photo once it has loaded, a plain gradient until then.
-const SKY_GLSL = `uniform sampler2D skyMap; uniform float skyOn, skyTurn, skyGain; uniform vec3 zenith, horizon, sunCol, sunDir;
+const SKY_GLSL = `uniform sampler2D skyMap; uniform float skyOn, skyTurn, skyGain, skySat, skyHaze; uniform vec3 skyTint; uniform vec3 zenith, horizon, sunCol, sunDir;
   vec3 skyColor(vec3 d){
     float h = clamp(d.z, 0.0, 1.0);
     vec3 grad = mix(horizon, zenith, pow(h, 0.5));
     float t = 0.5 - asin(clamp(d.z, -1.0, 1.0)) * 0.31830989;
     vec2 uv = vec2(atan(d.y, d.x) * 0.15915494 + skyTurn, 1.0 - min(t, 0.56) / 0.5625);
     vec3 photo = texture2D(skyMap, uv).rgb * skyGain;
-    photo = mix(photo, horizon, smoothstep(0.03, -0.04, d.z));
-    return mix(grad, photo, skyOn);
+    vec3 col = mix(grad, photo, skyOn);
+    col = mix(vec3(dot(col, vec3(0.3, 0.6, 0.1))), col, skySat) * skyTint;
+    col = mix(col, horizon, skyHaze * (1.0 - smoothstep(0.0, 0.55, d.z)));
+    return mix(col, horizon, smoothstep(0.03, -0.04, d.z));
   }`;
 const skyDome = new THREE.Mesh(new THREE.SphereGeometry(4500, 32, 20), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
@@ -414,12 +435,11 @@ const skyDome = new THREE.Mesh(new THREE.SphereGeometry(4500, 32, 20), new THREE
       vec3 d = normalize(vDir);
       vec3 col = skyColor(d);
       float s = max(dot(d, sunDir), 0.0);
-      col += sunCol * (pow(s, 1500.0) * 6.0 + pow(s, 90.0) * 0.25);
+      col += sunCol * (pow(s, 1500.0) * 6.0 + pow(s, 90.0) * 0.25) * (1.0 - skyHaze) * min(1.0, skySat * 1.5 - 0.3);
       gl_FragColor = vec4(col, 1.0);${TONE}}`,
 }));
 skyDome.renderOrder = -10; skyDome.frustumCulled = false;
 scene.add(skyDome);
-const clouds = [];
 {
   const r = mulberry32(11);
   const hillMats = [std("#4f8f5c", 1), std("#4a7d74", 1), std("#5a9468", 1)];
@@ -482,6 +502,19 @@ const TUFT = (() => {
   g.setIndex(idx);
   return g;
 })();
+// Flower heads: pale dots that each patch tints its own colour.
+const flowerMat = (() => {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+  const c = cv.getContext("2d"), r = mulberry32(21);
+  for (let i = 0; i < 7; i++) {
+    const x = 8 + r() * 48, y = 6 + r() * 30;
+    c.strokeStyle = "#5d8f3c"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(32 + (x - 32) * 0.4, 64); c.stroke();
+    c.fillStyle = "#ffffff"; c.beginPath(); c.arc(x, y, 4.5, 0, 7); c.fill();
+    c.fillStyle = "#fff2b0"; c.beginPath(); c.arc(x, y, 1.6, 0, 7); c.fill();
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: t, alphaTest: 0.4, side: THREE.DoubleSide });
+})();
 const tuftMat = new THREE.MeshBasicMaterial({ map: tuftTex, alphaTest: 0.35, side: THREE.DoubleSide }); // unlit, so both faces match
 // Water that ripples, mirrors the sky and glints in the sun.
 const waterMat = new THREE.ShaderMaterial({
@@ -498,8 +531,8 @@ const waterMat = new THREE.ShaderMaterial({
       float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
       vec3 R = reflect(-V, N);
       vec3 skyc = skyColor(normalize(vec3(R.xy, max(R.z, 0.03))));
-      vec3 col = mix(vec3(0.03, 0.2, 0.3), skyc, 0.12 + 0.7 * fres);
-      col += sunCol * pow(max(dot(R, sunDir), 0.0), 260.0) * 5.0;
+      vec3 col = mix(vec3(0.02, 0.3, 0.4), skyc, 0.12 + 0.7 * fres);
+      col += sunCol * pow(max(dot(R, sunDir), 0.0), 260.0) * 5.0 * (1.0 - skyHaze) * min(1.0, skySat);
       float edge = smoothstep(1.0, 0.9, length(vUv - 0.5) * 2.0);
       gl_FragColor = vec4(col, 0.93 * edge);${TONE}}`,
 });
@@ -531,7 +564,7 @@ function paintCourse(H, trees) {
   };
   const b = H.bounds;
   c.fillStyle = "#3a7732"; c.fillRect(0, 0, cv.width, cv.height);
-  c.fillStyle = "#47893a"; c.fillRect(X(b.minX), Y(b.maxY), (b.maxX - b.minX) * s, (b.maxY - b.minY) * s);
+  c.fillStyle = "#3f923c"; c.fillRect(X(b.minX), Y(b.maxY), (b.maxX - b.minX) * s, (b.maxY - b.minY) * s);
   for (let i = 0; i < 5200; i++) { // darker, lighter and dry patches in the rough
     const t = r();
     c.fillStyle = t < 0.45 ? "rgba(20,60,20,0.10)" : t < 0.85 ? "rgba(150,200,90,0.08)" : "rgba(200,190,110,0.07)";
@@ -547,7 +580,7 @@ function paintCourse(H, trees) {
   striped((k) => {
     poly(k, H.line); k.lineWidth = H.hw * 2 * s; k.stroke();
     k.beginPath(); k.arc(X(0), Y(0), Math.max(9, H.hw) * s, 0, 7); k.fill();
-  }, "#62b048", "rgba(255,255,255,0.06)", 4, 0.6);
+  }, "#5cbc42", "rgba(255,255,255,0.07)", 4, 0.6);
   if (H.path) {
     c.strokeStyle = "#8d8778"; poly(c, H.path); c.lineWidth = 3.4 * s; c.stroke();
     c.strokeStyle = "#c9c2ae"; poly(c, H.path); c.lineWidth = 2.6 * s; c.stroke();
@@ -566,7 +599,7 @@ function paintCourse(H, trees) {
   }
   c.fillStyle = "#6bb850"; circ(c, H.green.x, H.green.y, H.green.r + 2.4); c.fill(); // fringe
   striped((k) => { k.beginPath(); k.arc(X(H.green.x), Y(H.green.y), H.green.r * s, 0, 7); k.fill(); },
-    "#8ad25f", "rgba(255,255,255,0.08)", 2.5, -0.5);
+    "#8fe05c", "rgba(255,255,255,0.09)", 2.5, -0.5);
   for (const q of H.bunkers) {
     c.fillStyle = "#6fb052"; ell(c, q, 1.4); c.fill();
     c.fillStyle = "#c2ad72"; ell(c, q, 0.3); c.fill();
@@ -676,6 +709,8 @@ function buildCourse(H) {
   const M = (x, y, z, q, sx, sy, sz) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
   const tint = (a, c2, t) => new THREE.Color(a).lerp(new THREE.Color(c2), t);
   const spin = () => new THREE.Quaternion().setFromAxisAngle(AXIS_Z, r() * 6.3);
+  const accent = { summer: [["#2f8f3a", "#8fd14a"]], autumn: [["#c8501e", "#f2a03a"], ["#b02a20", "#e8642c"], ["#d9a21e", "#f6d24a"]],
+    blossom: [["#e86aa6", "#ffc1dc"], ["#f29ac0", "#fff0f6"]] }[H.season], accentShare = H.season === "summer" ? 0.25 : 0.6;
   for (const t of trees) {
     const z = hAt(t.x, t.y) - 0.3, h = t.h, parts = [];
     const put = (name, m, col) => { batch[name].push([m, col]); parts.push([name, batch[name].length - 1, m]); };
@@ -687,12 +722,12 @@ function buildCourse(H) {
         put("cone", M(t.x, t.y, z + base + th / 2, spin().multiply(Q_UP), rad, th, rad), tint("#17512a", "#3f9146", k * 0.22 + shade * 0.5));
       }
     } else {
-      const shade = r();
+      const shade = r(), pal = r() < accentShare ? accent[Math.floor(r() * accent.length)] : ["#2c7a2e", "#6fbb45"];
       put("trunk", M(t.x, t.y, z + h * 0.25, Q_UP, t.r * 0.16, h * 0.5, t.r * 0.16), tint("#5a4630", "#7d6548", r()));
-      put("leaf", M(t.x, t.y, z + h * 0.64, spin(), t.r * 0.95, t.r * 0.95, h * 0.36), tint("#2c7a2e", "#5fae3f", shade * 0.6));
+      put("leaf", M(t.x, t.y, z + h * 0.64, spin(), t.r * 0.95, t.r * 0.95, h * 0.36), tint(pal[0], pal[1], shade * 0.5));
       for (let k = 0; k < 5; k++) { // smaller clumps around the crown
         const a = r() * 6.3, d = t.r * (0.35 + r() * 0.3), s2 = t.r * (0.45 + r() * 0.25);
-        put("leaf", M(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d, z + h * (0.52 + r() * 0.34), spin(), s2, s2, s2 * 0.85), tint("#2c7a2e", "#6fbb45", shade * 0.6 + r() * 0.4));
+        put("leaf", M(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d, z + h * (0.52 + r() * 0.34), spin(), s2, s2, s2 * 0.85), tint(pal[0], pal[1], shade * 0.6 + r() * 0.4));
       }
     }
     if (t.src) { t.src.parts = parts; t.src.shown = true; }
@@ -726,6 +761,21 @@ function buildCourse(H) {
       tufts.push([M(x, y, hAt(x, y) - 0.1, spin(), w, w, 0.8 + r() * 1.0), tint("#8f9a5c", "#d9d6a0", r())]);
     }
   }
+  const blooms = [], petals = ["#ff5fa2", "#ffd23f", "#ffffff", "#ff8a3d", "#b47cff", "#5fc8ff"];
+  for (let tries = 0; tries < 400 && blooms.length < (HI ? 1500 : 600); tries++) { // patches of wild flowers
+    const cx = b.minX + r() * (b.maxX - b.minX), cy = b.minY + r() * (b.maxY - b.minY), spread = 3 + r() * 6, col = petals[Math.floor(r() * petals.length)];
+    if (terrainAt(H, cx, cy) !== "rough" || distToLine(H.line, cx, cy) < H.hw + 6) continue;
+    for (let k = 0; k < 14 + r() * 22; k++) {
+      const a = r() * 6.3, d = Math.sqrt(r()) * spread, x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+      if (terrainAt(H, x, y) !== "rough") continue;
+      const w = 0.7 + r() * 0.5;
+      blooms.push([M(x, y, hAt(x, y) - 0.05, spin(), w, w, 0.55 + r() * 0.4), new THREE.Color(col)]);
+    }
+  }
+  const flowers = new THREE.InstancedMesh(TUFT, flowerMat, Math.max(1, blooms.length));
+  blooms.forEach(([m, col], i) => { flowers.setMatrixAt(i, m); flowers.setColorAt(i, col); });
+  flowers.count = blooms.length; flowers.frustumCulled = false;
+  add(flowers);
   const grass = new THREE.InstancedMesh(TUFT, tuftMat, Math.max(1, tufts.length));
   tufts.forEach(([m, col], i) => { grass.setMatrixAt(i, m); grass.setColorAt(i, col); });
   grass.count = tufts.length; grass.frustumCulled = false; grass.receiveShadow = true;
@@ -761,6 +811,33 @@ function showTree(o, shown) {
   if (o.shown === shown) return;
   o.shown = shown;
   for (const [name, i, m] of o.parts) { H.batches[name].setMatrixAt(i, shown ? m : ZERO); H.batches[name].instanceMatrix.needsUpdate = true; }
+}
+
+// Rain: streaks that fall around the camera.
+const RAIN_N = HI ? 900 : 420;
+const rain = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: "#d6e6f5", transparent: true, opacity: 0.5, fog: false, depthWrite: false }));
+rain.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(RAIN_N * 6), 3));
+rain.frustumCulled = false; rain.visible = false;
+const drops = Array.from({ length: RAIN_N }, () => ({ x: (Math.random() - 0.5) * 70, y: (Math.random() - 0.5) * 70, z: Math.random() * 40 }));
+scene.add(rain);
+function stepRain(dt, wind) {
+  if (!rain.visible) return;
+  const p = rain.geometry.attributes.position.array, wx = Math.cos(wind.angle) * wind.mph * 0.5, wy = Math.sin(wind.angle) * wind.mph * 0.5;
+  drops.forEach((d, i) => {
+    d.z -= 60 * dt; d.x += wx * dt; d.y += wy * dt;
+    if (d.z < -6) { d.z += 40; d.x = (Math.random() - 0.5) * 70; d.y = (Math.random() - 0.5) * 70; }
+    const x = cam.pos.x + d.x, y = cam.pos.y + d.y, z = cam.pos.z - 14 + d.z, k = i * 6;
+    p[k] = x; p[k + 1] = y; p[k + 2] = z; p[k + 3] = x + wx * 0.03; p[k + 4] = y + wy * 0.03; p[k + 5] = z + 1.8;
+  });
+  rain.geometry.attributes.position.needsUpdate = true;
+}
+// Set the light, sky and haze for the day's weather.
+function applyWeather(w) {
+  skyU.skyTint.value.set(...w.tint); skyU.skySat.value = w.sat; skyU.skyHaze.value = w.haze;
+  SKY.horizon.set(w.fog[0]).multiplyScalar(w.fog[1]);
+  scene.fog.color.copy(SKY.horizon); scene.fog.near = w.fog[2]; scene.fog.far = w.fog[3];
+  sun.color.set(w.sun[0]); sun.intensity = w.sun[1]; skyLight.intensity = w.sky;
+  rain.visible = !!w.rain;
 }
 
 // Moving things.
@@ -864,6 +941,7 @@ function loadHole(seed) {
   G.seed = seed;
   H = generateHole(seed);
   buildCourse(H);
+  applyWeather(WEATHER[H.weather]);
   Object.assign(G.ball, { x: 0, y: 0, z: heightAt(H, 0, 0), vx: 0, vy: 0, vz: 0, air: false });
   G.last = { x: 0, y: 0 }; G.golfer = { x: 0, y: 0 };
   Object.assign(G.cart, { x: -7, y: -4, a: Math.PI / 2, v: 0 });
@@ -903,7 +981,7 @@ function launch(b, dx, dy, p) {
   const plan = shotPlan(p, b);
   b.z = heightAt(H, b.x, b.y); b.bounces = 0; b.landed = null;
   if (plan.putt) {
-    const v = Math.sqrt(2 * TUNE.friction.green * plan.D);
+    const v = Math.sqrt(2 * TUNE.friction.green * H.wet * plan.D);
     b.vx = dx * v; b.vy = dy * v; b.vz = 0; b.air = false;
   } else {
     // Softer swings fly higher for their length and bite more when they land.
@@ -940,7 +1018,7 @@ function stepPhysics(b, dt, wind) {
     // Bounce off the slope: lose some speed into the ground, and some along it.
     const s = slopeAt(H, b.x, b.y), nl = Math.hypot(s.x, s.y, 1), nx = -s.x / nl, ny = -s.y / nl, nz = 1 / nl;
     const vn = b.vx * nx + b.vy * ny + b.vz * nz;
-    const grip = TUNE.grip[lie] * (b.bounces === 0 ? b.spin : 1), e = TUNE.bounce[lie];
+    const grip = TUNE.grip[lie] * (b.bounces === 0 ? b.spin : 1), e = TUNE.bounce[lie] / (H.wet * H.wet);
     b.vx = (b.vx - vn * nx) * grip - e * vn * nx;
     b.vy = (b.vy - vn * ny) * grip - e * vn * ny;
     b.vz = (b.vz - vn * nz) * grip - e * vn * nz;
@@ -954,7 +1032,7 @@ function stepPhysics(b, dt, wind) {
     if (lie === "water" || lie === "ob") return lie;
     const sp = Math.hypot(b.vx, b.vy);
     if (dist(b.x, b.y, H.cup.x, H.cup.y) < TUNE.cupRadius && sp < TUNE.cupSpeed) return "holed";
-    const s = slopeAt(H, b.x, b.y), pull = TUNE.slopePull * Math.hypot(s.x, s.y), fr = TUNE.friction[lie];
+    const s = slopeAt(H, b.x, b.y), pull = TUNE.slopePull * Math.hypot(s.x, s.y), fr = TUNE.friction[lie] * H.wet;
     if (sp < 0.5 && pull <= fr * 0.8) { b.z = heightAt(H, b.x, b.y); return "stopped"; }
     if (sp > 0) { const ns = Math.max(0, sp - fr * h); b.vx *= ns / sp; b.vy *= ns / sp; }
     b.vx -= TUNE.slopePull * s.x * h; b.vy -= TUNE.slopePull * s.y * h; // gravity pulls it downhill
@@ -1148,7 +1226,7 @@ function showTitle() {
   G.date = new URLSearchParams(location.search).get("date") || nyDate();
   loadHole(G.date);
   $("holeLine").textContent = `Hole #${holeNumber(G.date)} · ${G.date}`;
-  const facts = [["Length", `${Math.round(dist(0, 0, H.cup.x, H.cup.y))} yds`], ["Wind", `${H.wind.mph} mph`],
+  const facts = [["Length", `${Math.round(dist(0, 0, H.cup.x, H.cup.y))} yds`], ["Par", "4"], ["Weather", WEATHER[H.weather].name], ["Wind", `${H.wind.mph} mph`],
     ["Water", `${H.ponds.length} pond${H.ponds.length === 1 ? "" : "s"}`]];
   $("facts").innerHTML = "";
   for (const [k, v] of facts) {
@@ -1251,7 +1329,7 @@ const tmp = new THREE.Vector3(), UPZ = new THREE.Vector3(0, 0, 1);
 function draw(dt) {
   const b = G.ball, hAt = (x, y) => heightAt(H, x, y), now = performance.now() / 1000;
   waterMat.uniforms.time.value = now;
-  for (const c of clouds) { c.position.x += dt * 4; if (c.position.x > 3000) c.position.x = -3000; }
+  stepRain(dt, windNow());
   { // the flag ripples
     const p = H.flag.geometry.attributes.position;
     for (let i = 0; i < p.count; i++) { const u = p.getX(i) + 0.5; p.setZ(i, Math.sin(u * 7 - now * 7) * 0.13 * u); }
