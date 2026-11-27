@@ -300,14 +300,42 @@ const store = {
   get(k, fallback) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
+// The shared leaderboard lives in a small Supabase database. Paste its two values here
+// (daily-putt/LEADERBOARD.md has the steps). While they are empty, times stay on this device.
+const BOARD = { url: "", key: "" };
+const deviceId = (() => {
+  let id = store.get("dailyputt:device", null);
+  if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2)); store.set("dailyputt:device", id); }
+  return id;
+})();
 const Leaderboard = {
+  online: !!(BOARD.url && BOARD.key),
+  call(path, options = {}) {
+    return fetch(BOARD.url.replace(/\/$/, "") + "/rest/v1/" + path, { ...options,
+      headers: { apikey: BOARD.key, Authorization: "Bearer " + BOARD.key, "Content-Type": "application/json", ...options.headers } });
+  },
+  local(date) { return store.get("dailyputt:lb:" + date, []); },
+  // Save a time. Returns false if it could not reach the shared board (the time is still kept on this device).
   async submit(date, entry) {
-    const list = store.get("dailyputt:lb:" + date, []);
+    const list = this.local(date);
     list.push(entry);
     store.set("dailyputt:lb:" + date, list);
+    if (!this.online) return true;
+    try {
+      const r = await this.call("scores", { method: "POST", headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ day: date, name: entry.name, score: Math.round(entry.score * 10) / 10, strokes: entry.strokes, penalties: entry.pen, device: deviceId }) });
+      return r.ok || r.status === 409; // 409: this device already has a time for today
+    } catch { return false; }
   },
   async top(date) {
-    return store.get("dailyputt:lb:" + date, []).sort((a, b) => a.score - b.score).slice(0, 20);
+    const mine = this.local(date);
+    if (this.online) {
+      try {
+        const r = await this.call(`scores?day=eq.${encodeURIComponent(date)}&select=name,score,strokes,device&order=score.asc,created_at.asc&limit=25`);
+        if (r.ok) return (await r.json()).map((e) => ({ name: e.name, score: e.score, strokes: e.strokes, at: e.device === deviceId ? (mine[0] || {}).at : null }));
+      } catch { /* fall back to this device's times */ }
+    }
+    return mine.sort((a, b) => a.score - b.score).slice(0, 25);
   },
 };
 
@@ -1370,7 +1398,7 @@ async function showBoard(meAt) {
   $("board").innerHTML = "";
   list.forEach((e, i) => {
     const li = document.createElement("li");
-    if (e.at === meAt) li.className = "me";
+    if (e.at && e.at === meAt) li.className = "me";
     const a = document.createElement("span"), b = document.createElement("span");
     a.textContent = `${i + 1}. ${e.name}`; b.textContent = `${fmt(e.score)}  (${e.strokes})`;
     li.append(a, b); $("board").append(li);
@@ -1382,7 +1410,8 @@ $("save").onclick = async () => {
   store.set("dailyputt:name", name);
   lastEntry.name = name;
   store.set(officialKey(), lastEntry);
-  await Leaderboard.submit(G.date, lastEntry);
+  const sent = await Leaderboard.submit(G.date, lastEntry);
+  if (!sent) toast("Could not reach the leaderboard");
   $("nameRow").style.display = "none";
   showBoard(lastEntry.at);
 };
@@ -1402,6 +1431,7 @@ function begin(seed, practice) {
   G.start = Date.now();
   enterAim();
 }
+if (Leaderboard.online) $("boardNote").hidden = true;
 $("start").onclick = () => begin(G.date, !!store.get(officialKey(), null));
 $("again").onclick = () => begin(G.date, true);
 const randomHole = () => begin("practice-" + Math.random().toString(36).slice(2, 8), true);
