@@ -871,6 +871,25 @@ function makeGolfer(withClub) { // faces +x
   }
   return g;
 }
+// The same figure sitting down, hands out on a steering wheel. Faces +x, with the seat at height 0.
+function makeSitter(shirtCol = "#f2f2f2", capCol = "#c8321e") {
+  const g = new THREE.Group(), navy = std("#26334d"), shirt = std(shirtCol), skin = std("#e9b990", 0.7), cap = std(capCol), put = (m) => { m.castShadow = true; g.add(m); return m; };
+  for (const y of [-0.28, 0.28]) {
+    const thigh = put(new THREE.Mesh(BOX, navy)); thigh.scale.set(1.0, 0.26, 0.26); thigh.position.set(0.45, y, 0.14);
+    const shin = put(new THREE.Mesh(BOX, navy)); shin.scale.set(0.24, 0.24, 0.8); shin.position.set(0.85, y, -0.3);
+    const shoe = put(new THREE.Mesh(BOX, std("#f5f5f5"))); shoe.scale.set(0.6, 0.3, 0.2); shoe.position.set(1.0, y, -0.72);
+    const arm = put(new THREE.Mesh(BOX, shirt)); arm.scale.set(0.95, 0.15, 0.15); arm.position.set(0.5, y * 1.25, 1.02); arm.rotation.y = 0.12;
+  }
+  g.add(solid(CYL, shirt, 0.5, 1.3, 0.02, 0.36));
+  const head = put(new THREE.Mesh(SPHERE, skin)); head.scale.setScalar(0.4); head.position.z = 1.8;
+  const top = put(new THREE.Mesh(SPHERE, cap)); top.scale.set(0.42, 0.42, 0.3); top.position.z = 1.98;
+  const brim = solid(BOX, cap, 0.5, 0.05, 1.92, 0.56); brim.position.x = 0.5; g.add(brim);
+  return g;
+}
+function steering(parent, x, y, z) { // a wheel on a short column
+  const col = boxOn(parent, dark, x + 0.3, y, z - 0.4, 0.1, 0.1, 1.0); col.rotation.y = 0.6;
+  const w = new THREE.Mesh(CYL, dark); w.scale.set(0.34, 0.07, 0.34); w.rotation.z = Math.PI / 2; w.rotation.y = 0; w.position.set(x, y, z); w.castShadow = true; parent.add(w);
+}
 const golferMesh = makeGolfer(true);
 const cartMesh = new THREE.Group(), cartBody = new THREE.Group(); // body is built facing +x
 cartMesh.add(cartBody);
@@ -887,23 +906,27 @@ function boxOn(parent, m, x, y, z, sx, sy, sz) { const b = new THREE.Mesh(BOX, m
   boxOn(cartBody, dark, 0, 0, 0.62, 4.9, 2.7, 0.18);            // bumper strip
   boxOn(cartBody, blue, -0.5, 0, 1.75, 1.3, 2.3, 0.6);          // seat
   boxOn(cartBody, blue, -1.2, 0, 2.3, 0.3, 2.3, 1.2);           // seat back
-  boxOn(cartBody, white, -0.3, 0, 4.1, 3.6, 2.7, 0.18);         // roof
+  boxOn(cartBody, white, -0.3, 0, 4.4, 3.6, 2.7, 0.18);         // roof
   boxOn(cartBody, new THREE.MeshStandardMaterial({ color: "#bfe3ff", transparent: true, opacity: 0.35, roughness: 0.1 }), 1.25, 0, 3.0, 0.06, 2.3, 1.9).rotation.y = -0.25; // windshield
   boxOn(cartBody, std("#3a2a1a"), -2.1, 0, 2.0, 0.7, 1.6, 1.8);  // golf bag
-  for (const [x, y] of [[1.3, 1.2], [1.3, -1.2], [-1.9, 1.2], [-1.9, -1.2]]) boxOn(cartBody, chrome, x, y, 2.75, 0.12, 0.12, 2.6);
+  for (const [x, y] of [[1.3, 1.2], [1.3, -1.2], [-1.9, 1.2], [-1.9, -1.2]]) boxOn(cartBody, chrome, x, y, 2.9, 0.12, 0.12, 2.9);
   boxOn(cartBody, basic("#fff3a0"), 2.42, 0.8, 1.3, 0.1, 0.5, 0.3); boxOn(cartBody, basic("#fff3a0"), 2.42, -0.8, 1.3, 0.1, 0.5, 0.3); // headlights
   for (const [x, y] of [[1.5, 1.35], [1.5, -1.35], [-1.5, 1.35], [-1.5, -1.35]]) wheel(cartBody, x, y, 0.65, 0.65);
 }
-const driver = makeGolfer(false); driver.scale.setScalar(0.85); driver.position.set(-0.5, 0.5, 1.2); cartBody.add(driver);
+const driver = makeSitter(); driver.scale.setScalar(0.82); driver.position.set(-0.6, 0.5, 2.05); cartBody.add(driver);
+steering(cartBody, 0.42, 0.5, 2.95);
 // The greenkeeper's mower, which drives back and forth across the fairway.
 const mowerMesh = new THREE.Group();
 {
   const red = std("#c3271b", 0.4);
-  boxOn(mowerMesh, red, 0, 0, 0.9, 3.2, 1.9, 0.8); boxOn(mowerMesh, red, 0.9, 0, 1.5, 1.2, 1.5, 0.5);
+  boxOn(mowerMesh, red, 0, 0, 0.8, 3.2, 1.9, 0.6);             // low body
+  boxOn(mowerMesh, red, 1.0, 0, 1.4, 1.2, 1.5, 0.6);           // engine hood
   boxOn(mowerMesh, dark, 2.0, 0, 0.45, 1.0, 2.6, 0.35);         // cutting deck
-  boxOn(mowerMesh, dark, -0.7, 0, 1.6, 0.9, 1.1, 0.7);          // seat
+  boxOn(mowerMesh, dark, -0.95, 0, 1.4, 0.9, 1.1, 0.6);         // seat
+  boxOn(mowerMesh, dark, -1.45, 0, 2.15, 0.2, 1.1, 1.0);        // seat back
   for (const [x, y] of [[1.0, 1.0], [1.0, -1.0], [-1.0, 1.05], [-1.0, -1.05]]) wheel(mowerMesh, x, y, 0.55, x < 0 ? 0.7 : 0.5);
-  const keeper = makeGolfer(false); keeper.scale.setScalar(0.8); keeper.position.set(-0.7, 0, 1.4); mowerMesh.add(keeper);
+  const keeper = makeSitter("#3f8f4a", "#f2c230"); keeper.scale.setScalar(0.8); keeper.position.set(-0.95, 0, 1.7); mowerMesh.add(keeper);
+  steering(mowerMesh, -0.12, 0, 2.58);
 }
 // Bits that fly up: turf, sand, splashes, confetti.
 const bits = [];
