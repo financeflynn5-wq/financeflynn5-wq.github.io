@@ -4,7 +4,8 @@
 //  where entries are sent. The page itself is competition.html.
 //
 //  deadline / reviewStart: ISO dates with a time zone offset,
-//    e.g. "2026-12-04T23:59:00-05:00" (US Eastern).
+//    e.g. "2026-12-04T23:59:00-05:00" (US Eastern). Visitors in
+//    other time zones see the deadline in their own local time.
 //  channel: the Discord channel where players post their entry.
 //    The form builds the entry text for them to copy and post.
 //  channelLink: the Discord invite used on this page (optional;
@@ -45,8 +46,25 @@ window.COMPETITION = {
     else el.removeAttribute("href");
   });
 
-  // Countdown to the deadline
+  // Countdown to the deadline (an exact moment, so it's right in every time zone)
   const deadline = new Date(C.deadline);
+
+  // Show the deadline in the visitor's own time zone, with Eastern Time alongside
+  try {
+    const fmt = (tz, opts) => new Intl.DateTimeFormat("en-US", { timeZone: tz, ...opts }).format(deadline);
+    const et = fmt("America/New_York", { hour: "numeric", minute: "2-digit" });
+    const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const sameAsEt = fmt(localTz, { dateStyle: "full", timeStyle: "short" }) === fmt("America/New_York", { dateStyle: "full", timeStyle: "short" });
+    if (!sameAsEt) {
+      const day = fmt(localTz, { weekday: "long", month: "long", day: "numeric" });
+      const time = fmt(localTz, { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+      document.querySelectorAll('[data-c="deadlineLabel"]').forEach((el) => {
+        el.textContent = `${day} at ${time} your time (${et} ET)`;
+      });
+    }
+  } catch {
+    // Older browsers keep the Eastern Time label
+  }
   const cd = $("countdown");
   const closed = () => !C.open || Date.now() > deadline;
   function tick() {
