@@ -307,14 +307,25 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, HI ? 2 : 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
-const SKY = { zenith: new THREE.Color("#0f55c8"), horizon: new THREE.Color("#a9d2f5"), sun: new THREE.Color("#fff0cc") };
-const SUN_DIR = new THREE.Vector3(-0.6, -0.35, 0.52).normalize();
+renderer.toneMappingExposure = 1.0;
+// The sky is a real photo (free from Poly Haven, see assets/CREDITS.md). The sun sits where it is in the photo.
+const SKY_GAIN = 1.45;
+const SKY = { zenith: new THREE.Color("#0f55c8"), horizon: new THREE.Color("#a3adc4").multiplyScalar(SKY_GAIN), sun: new THREE.Color("#fff0cc") };
+const SUN_EL = 47.3 * Math.PI / 180, SUN_AZ = Math.atan2(-0.35, -0.6);
+const SUN_DIR = new THREE.Vector3(Math.cos(SUN_AZ) * Math.cos(SUN_EL), Math.sin(SUN_AZ) * Math.cos(SUN_EL), Math.sin(SUN_EL));
+const loader = new THREE.TextureLoader();
+function loadTex(file, { srgb = false, repeat = 0, done = null } = {}) {
+  const t = loader.load("assets/" + file, done || undefined);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
+  t.anisotropy = 8;
+  return t;
+}
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(SKY.horizon, 420, 2400);
 const skyLight = new THREE.HemisphereLight("#cfe2ff", "#8a9a5c", 1.5);
 skyLight.position.set(0, 0, 1);
-const sun = new THREE.DirectionalLight("#ffe9c0", 3.6);
+const sun = new THREE.DirectionalLight("#ffe9c0", 3.2);
 sun.castShadow = true;
 sun.shadow.mapSize.setScalar(HI ? 2048 : 1024);
 const SHADOW = HI ? 130 : 95;
@@ -366,8 +377,10 @@ function lumpy(detail, amount, seed, faceted = false) {
   return g;
 }
 const LEAF = lumpy(3, 0.3, 1.3), ROCK = lumpy(1, 0.3, 4.1, true);
+let plainRock = null;
 const std = (c, rough = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0 });
 const lam = std;
+plainRock = std("#8d9299", 0.9);
 const basic = (c, opacity = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: opacity < 1, opacity, depthWrite: opacity >= 1 });
 // A solid standing on the ground: w wide, h tall, with its base at height z.
 function solid(geo, material, w, h, z = 0, d = w) {
@@ -378,45 +391,43 @@ function solid(geo, material, w, h, z = 0, d = w) {
 const TONE = "\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n";
 
 // Sky with a sun, drifting clouds and far hills. These never change between holes.
+const skyU = { skyMap: { value: null }, skyOn: { value: 0 }, skyTurn: { value: 0.5947 - SUN_AZ / (Math.PI * 2) }, skyGain: { value: SKY_GAIN },
+  zenith: { value: SKY.zenith }, horizon: { value: SKY.horizon }, sunCol: { value: SKY.sun }, sunDir: { value: SUN_DIR } };
+skyU.skyMap.value = loadTex(HI ? "sky-8k.jpg" : "sky-4k.jpg", { srgb: true, done: () => { skyU.skyOn.value = 1; } });
+skyU.skyMap.value.wrapS = THREE.RepeatWrapping; skyU.skyMap.value.generateMipmaps = false; skyU.skyMap.value.minFilter = THREE.LinearFilter;
+// Colour of the sky in direction d: the photo once it has loaded, a plain gradient until then.
+const SKY_GLSL = `uniform sampler2D skyMap; uniform float skyOn, skyTurn, skyGain; uniform vec3 zenith, horizon, sunCol, sunDir;
+  vec3 skyColor(vec3 d){
+    float h = clamp(d.z, 0.0, 1.0);
+    vec3 grad = mix(horizon, zenith, pow(h, 0.5));
+    float t = 0.5 - asin(clamp(d.z, -1.0, 1.0)) * 0.31830989;
+    vec2 uv = vec2(atan(d.y, d.x) * 0.15915494 + skyTurn, 1.0 - min(t, 0.56) / 0.5625);
+    vec3 photo = texture2D(skyMap, uv).rgb * skyGain;
+    photo = mix(photo, horizon, smoothstep(0.03, -0.04, d.z));
+    return mix(grad, photo, skyOn);
+  }`;
 const skyDome = new THREE.Mesh(new THREE.SphereGeometry(4500, 32, 20), new THREE.ShaderMaterial({
-  side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { zenith: { value: SKY.zenith }, horizon: { value: SKY.horizon }, sunCol: { value: SKY.sun }, sunDir: { value: SUN_DIR } },
+  side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
   vertexShader: "varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-  fragmentShader: `uniform vec3 zenith, horizon, sunCol, sunDir; varying vec3 vDir;
+  fragmentShader: `${SKY_GLSL} varying vec3 vDir;
     void main(){
-      vec3 d = normalize(vDir); float h = clamp(d.z, 0.0, 1.0);
-      vec3 col = mix(horizon, zenith, pow(h, 0.5));
-      col = mix(col, vec3(1.0, 0.93, 0.82), 0.35 * pow(1.0 - h, 10.0)); // warm haze at the horizon
+      vec3 d = normalize(vDir);
+      vec3 col = skyColor(d);
       float s = max(dot(d, sunDir), 0.0);
-      col += sunCol * (pow(s, 1200.0) * 8.0 + pow(s, 60.0) * 0.5 + pow(s, 7.0) * 0.16);
+      col += sunCol * (pow(s, 1500.0) * 6.0 + pow(s, 90.0) * 0.25);
       gl_FragColor = vec4(col, 1.0);${TONE}}`,
 }));
 skyDome.renderOrder = -10; skyDome.frustumCulled = false;
 scene.add(skyDome);
 const clouds = [];
 {
-  const cv = document.createElement("canvas"); cv.width = 512; cv.height = 256;
-  const c = cv.getContext("2d"), r = mulberry32(11);
-  for (let i = 0; i < 26; i++) {
-    const x = 90 + r() * 332, y = 120 + (r() - 0.5) * 70, rad = 38 + r() * 55;
-    const g = c.createRadialGradient(x, y - rad * 0.2, 0, x, y, rad);
-    g.addColorStop(0, "rgba(255,255,255,0.9)"); g.addColorStop(0.55, "rgba(246,249,255,0.5)"); g.addColorStop(1, "rgba(235,242,255,0)");
-    c.fillStyle = g; c.beginPath(); c.arc(x, y, rad, 0, 7); c.fill();
-  }
-  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-  for (let i = 0; i < 22; i++) {
-    const a = r() * Math.PI * 2, d = 1500 + r() * 1900;
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false, depthWrite: false, transparent: true, opacity: 0.85 + r() * 0.15, rotation: 0 }));
-    const s = 700 + r() * 900; sp.scale.set(s, s * 0.42, 1);
-    sp.position.set(Math.cos(a) * d, Math.sin(a) * d + 250, 260 + r() * 560);
-    clouds.push(sp); scene.add(sp);
-  }
-  const hillMats = [std("#4f8f5c", 1), std("#46786a", 1), std("#5d9c66", 1)];
+  const r = mulberry32(11);
+  const hillMats = [std("#4f8f5c", 1), std("#4a7d74", 1), std("#5a9468", 1)];
   const HILL = lumpy(4, 0.16, 2.2);
   for (let i = 0; i < 26; i++) {
-    const a = (i / 26) * Math.PI * 2 + r() * 0.2, d = 1300 + r() * 900, s = 300 + r() * 360;
+    const a = (i / 26) * Math.PI * 2 + r() * 0.2, d = 1500 + r() * 900, s = 240 + r() * 300;
     const hill = new THREE.Mesh(HILL, hillMats[i % 3]);
-    hill.scale.set(s * 1.8, s, s * (0.16 + r() * 0.22)); hill.position.set(Math.cos(a) * d, Math.sin(a) * d + 250, -25); hill.rotation.z = r() * 6;
+    hill.scale.set(s * 1.8, s, s * (0.1 + r() * 0.16)); hill.position.set(Math.cos(a) * d, Math.sin(a) * d + 250, -25); hill.rotation.z = r() * 6;
     scene.add(hill);
   }
   const far = new THREE.Mesh(PLANE, std("#3c7a35", 1)); far.scale.set(12000, 12000, 1); far.position.z = -6.5;
@@ -424,19 +435,25 @@ const clouds = [];
 }
 
 // Fine grass grain, repeated across the ground so it still looks sharp up close.
-const detailTex = (() => {
-  const cv = document.createElement("canvas"); cv.width = cv.height = 256;
-  const c = cv.getContext("2d"), r = mulberry32(5);
-  c.fillStyle = "#808080"; c.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 9000; i++) {
-    const v = 90 + Math.floor(r() * 90);
-    c.strokeStyle = `rgb(${v},${v},${v})`; c.lineWidth = 1;
-    const x = r() * 256, y = r() * 256, a = -1.57 + (r() - 0.5) * 1.2, l = 3 + r() * 6;
-    c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
-  }
-  const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
-  return t;
-})();
+const detailTex = loadTex("grass.jpg", { repeat: 1 }), sandTex = loadTex("sand.jpg", { repeat: 1 });
+const grassNormal = loadTex("grass-normal.jpg", { repeat: 1 });
+const barkTex = loadTex("bark.jpg", { srgb: true, repeat: 1 });
+barkTex.repeat.set(2, 3);
+const leafNormal = loadTex("grass-normal.jpg", { repeat: 3 });
+// A real scanned rock, loaded in the background; plain lumpy rocks stand in until it arrives.
+const rockLook = { geo: null, mat: null, waiting: [] };
+fetch("assets/rock.bin").then((r) => (r.ok ? r.arrayBuffer() : Promise.reject())).then((buf) => {
+  const [nv, ni] = new Uint32Array(buf, 0, 2), f = (off, n) => new Float32Array(buf, 8 + off * 4, n);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(f(0, nv * 3), 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(f(nv * 3, nv * 3), 3));
+  g.setAttribute("uv", new THREE.BufferAttribute(f(nv * 6, nv * 2), 2));
+  g.setIndex(new THREE.BufferAttribute(new Uint16Array(buf, 8 + nv * 32, ni), 1));
+  const map = loadTex("rock.jpg", { srgb: true }), normalMap = loadTex("rock-normal.jpg");
+  map.flipY = normalMap.flipY = false;
+  rockLook.geo = g; rockLook.mat = new THREE.MeshStandardMaterial({ map, normalMap, roughness: 0.95, metalness: 0, color: "#f4f1ec" });
+  for (const fn of rockLook.waiting.splice(0)) fn();
+}).catch(() => {});
 // Tall golden grass for the rough: two crossed cards with blades painted on.
 const tuftTex = (() => {
   const cv = document.createElement("canvas"); cv.width = cv.height = 128;
@@ -469,19 +486,19 @@ const tuftMat = new THREE.MeshBasicMaterial({ map: tuftTex, alphaTest: 0.35, sid
 // Water that ripples, mirrors the sky and glints in the sun.
 const waterMat = new THREE.ShaderMaterial({
   transparent: true,
-  uniforms: { time: { value: 0 }, zenith: { value: SKY.zenith }, horizon: { value: SKY.horizon }, sunCol: { value: SKY.sun }, sunDir: { value: SUN_DIR } },
+  uniforms: { time: { value: 0 }, ...skyU },
   vertexShader: "varying vec3 wp; varying vec2 vUv; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); wp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }",
-  fragmentShader: `uniform float time; uniform vec3 zenith, horizon, sunCol, sunDir; varying vec3 wp; varying vec2 vUv;
+  fragmentShader: `${SKY_GLSL} uniform float time; varying vec3 wp; varying vec2 vUv;
     void main(){
       vec2 p = wp.xy * 0.55;
       vec2 g = vec2(cos(p.x * 1.3 + time * 1.3) * 1.3 + cos((p.x + p.y) * 0.9 + time * 0.8) * 0.9 + cos(p.x * 3.7 - time * 2.1) * 0.6,
                     cos(p.y * 1.7 - time * 1.1) * 1.7 + cos((p.x + p.y) * 0.9 + time * 0.8) * 0.9 + cos(p.y * 4.1 + time * 1.7) * 0.6);
-      vec3 N = normalize(vec3(-g * 0.07, 1.0));
+      vec3 N = normalize(vec3(-g * 0.045, 1.0));
       vec3 V = normalize(cameraPosition - wp);
       float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
       vec3 R = reflect(-V, N);
-      vec3 skyc = mix(horizon, zenith, pow(clamp(R.z, 0.0, 1.0), 0.42));
-      vec3 col = mix(vec3(0.03, 0.2, 0.3), skyc, 0.2 + 0.8 * fres);
+      vec3 skyc = skyColor(normalize(vec3(R.xy, max(R.z, 0.03))));
+      vec3 col = mix(vec3(0.03, 0.2, 0.3), skyc, 0.12 + 0.7 * fres);
       col += sunCol * pow(max(dot(R, sunDir), 0.0), 260.0) * 5.0;
       float edge = smoothstep(1.0, 0.9, length(vUv - 0.5) * 2.0);
       gl_FragColor = vec4(col, 0.93 * edge);${TONE}}`,
@@ -610,12 +627,18 @@ function buildCourse(H) {
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
-  const groundMat = new THREE.MeshStandardMaterial({ map: paintCourse(H, trees), roughness: 1, metalness: 0 });
+  grassNormal.repeat.set(ext.w / 6, ext.h / 6);
+  const groundMat = new THREE.MeshStandardMaterial({ map: paintCourse(H, trees), roughness: 1, metalness: 0, normalMap: grassNormal, normalScale: new THREE.Vector2(0.55, 0.55) });
   groundMat.onBeforeCompile = (sh) => { // multiply in the repeating grass grain, at two sizes
-    sh.uniforms.detailMap = { value: detailTex };
-    sh.uniforms.detailScale = { value: new THREE.Vector2(ext.w / 7, ext.h / 7) };
-    sh.fragmentShader = "uniform sampler2D detailMap; uniform vec2 detailScale;\n" + sh.fragmentShader.replace("#include <map_fragment>",
-      "#include <map_fragment>\n diffuseColor.rgb *= (0.72 + 0.56 * texture2D(detailMap, vMapUv * detailScale).r) * (0.86 + 0.28 * texture2D(detailMap, vMapUv * detailScale * 0.13).r);");
+    sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.sandMap = { value: sandTex };
+    sh.uniforms.detailScale = { value: new THREE.Vector2(ext.w / 6, ext.h / 6) };
+    sh.fragmentShader = "uniform sampler2D detailMap, sandMap; uniform vec2 detailScale;\n" + sh.fragmentShader.replace("#include <map_fragment>",
+      `#include <map_fragment>
+      float sandy = smoothstep(0.0, 0.05, diffuseColor.r - diffuseColor.g);
+      vec3 near = mix(texture2D(detailMap, vMapUv * detailScale).rgb, texture2D(sandMap, vMapUv * detailScale * 1.7).rgb, sandy) * 1.99;
+      vec3 fine = mix(texture2D(detailMap, vMapUv * detailScale * 4.3).rgb, texture2D(sandMap, vMapUv * detailScale * 5.9).rgb, sandy) * 1.99;
+      vec3 wide = texture2D(detailMap, vMapUv * detailScale * 0.11).rgb * 1.99;
+      diffuseColor.rgb *= max(vec3(0.3), 1.0 + (near - 1.0) * 1.3) * max(vec3(0.3), 1.0 + (fine - 1.0) * 0.9) * mix(vec3(1.0), wide, 0.5);`);
   };
   const ground = new THREE.Mesh(geo, groundMat);
   ground.receiveShadow = true; ground.userData.own = true;
@@ -680,6 +703,8 @@ function buildCourse(H) {
     batch.leaf.push([M(x, y, hAt(x, y) + s2 * 0.45, spin(), s2 * 1.3, s2 * 1.3, s2 * 0.8), tint("#2f6f2c", "#5c9a3a", r())]); n++;
   }
   const mats = { trunk: std("#ffffff", 0.95), cone: std("#ffffff", 0.9), leaf: std("#ffffff", 0.9) };
+  mats.trunk.map = barkTex; mats.trunk.color.set("#d8cbbd");
+  mats.leaf.normalMap = mats.cone.normalMap = leafNormal; mats.leaf.normalScale.setScalar(1.6); mats.cone.normalScale.setScalar(1.3);
   const geos = { trunk: TRUNK, cone: CONE, leaf: LEAF };
   H.batches = {};
   for (const name in batch) {
@@ -706,12 +731,30 @@ function buildCourse(H) {
   grass.count = tufts.length; grass.frustumCulled = false; grass.receiveShadow = true;
   add(grass);
 
-  for (const o of H.obstacles) {
-    if (o.kind !== "rock") continue;
-    const rock = new THREE.Mesh(ROCK, std("#8d9299", 0.9));
-    rock.scale.set(o.r * 1.1, o.r * 1.1, o.r * 0.8); rock.position.set(o.x, o.y, hAt(o.x, o.y) + o.r * 0.3); rock.rotation.z = o.x;
-    rock.castShadow = rock.receiveShadow = true; add(rock);
+  const rocks = [];
+  const addRock = (x, y, size, sink) => {
+    const rock = new THREE.Mesh(ROCK, plainRock);
+    rock.userData = { size, sink, x, y }; rock.rotation.z = x * 1.7 + y;
+    rock.castShadow = rock.receiveShadow = true; rocks.push(add(rock));
+  };
+  for (const o of H.obstacles) if (o.kind === "rock") addRock(o.x, o.y, o.r, 0.12);
+  for (const p of H.ponds) { // loose stones around the water's edge
+    for (let k = 0, n = HI ? 5 : 2; k < n; k++) {
+      const a = r() * 6.3, ca = Math.cos(a), sa = Math.sin(a), cr = Math.cos(p.rot), sr = Math.sin(p.rot);
+      const ex = ca * (p.rx + 1.2), ey = sa * (p.ry + 1.2), x = p.x + ex * cr - ey * sr, y = p.y + ex * sr + ey * cr;
+      if (terrainAt(H, x, y) !== "rough") continue;
+      addRock(x, y, 0.7 + r() * 0.9, 0.3);
+    }
   }
+  const dress = () => { // swap in the scanned rock once it is here
+    for (const m of rocks) {
+      const { size, sink, x, y } = m.userData, real = !!rockLook.geo;
+      if (real) { m.geometry = rockLook.geo; m.material = rockLook.mat; m.scale.setScalar(size * 1.45); m.position.set(x, y, hAt(x, y) - size * sink); }
+      else { m.scale.set(size * 1.1, size * 1.1, size * 0.8); m.position.set(x, y, hAt(x, y) + size * 0.3); }
+    }
+  };
+  dress();
+  if (!rockLook.geo) rockLook.waiting.push(dress);
   scene.add(course);
 }
 function showTree(o, shown) {
