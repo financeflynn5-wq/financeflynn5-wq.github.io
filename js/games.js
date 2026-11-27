@@ -33,6 +33,23 @@ window.SITE = {
 
 window.GAMES = [
   {
+    id: "daily-putt",
+    title: "The Daily Putt",
+    status: "playable",
+    genre: "Daily golf",
+    engine: "Three.js",
+    tagline: "One new golf hole every day. Fastest time wins.",
+    description: [
+      "Everyone gets the same par 4 each day, and a new one arrives at midnight Eastern. Swing, drive the cart to your ball and putt it in.",
+      "Your score is your time, plus 10 seconds for every ball in the water or out of bounds. The weather and wind change by the day. Your first finished round of the day is the one that counts.",
+    ],
+    controls: "Drag back and let go to swing. Hold and drag to drive the cart, or use WASD or the arrow keys.",
+    play: "https://financeflynn5-wq.github.io/daily-putt/",
+    embed: true,
+    image: "img/daily-putt.jpg",
+    colors: ["#2fae4a", "#ffe14d"],
+  },
+  {
     id: "fta6",
     title: "Flynn Theft Auto: Sunset Coast",
     short: "FTA 6",

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>The Daily Putt</title>
+  <meta name="description" content="One golf hole a day. Swing, drive the cart, putt it in. Fastest time wins.">
+  <meta name="theme-color" content="#1d3b24">
+  <style>
+    [hidden] { display: none !important; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1d3b24; color: #fff;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+    canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+    #hud { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 8px; justify-content: space-between;
+      padding: calc(8px + env(safe-area-inset-top)) 10px 8px; pointer-events: none; }
+    .chip { background: rgba(8, 24, 12, .72); border-radius: 12px; padding: 6px 10px; text-align: center; min-width: 62px; }
+    .chip small { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+    .chip b { font-size: 17px; font-variant-numeric: tabular-nums; }
+    .chip .pen { color: #ffb4a8; font-size: 12px; font-weight: 700; }
+    #windArrow { display: inline-block; transition: transform .2s; }
+
+    #hint { position: fixed; left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom)); text-align: center;
+      font-size: 15px; font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,.7); pointer-events: none; padding: 0 16px; }
+    #power { position: fixed; left: 50%; bottom: calc(52px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+      width: min(70vw, 320px); height: 14px; border-radius: 8px; background: rgba(8,24,12,.72); overflow: hidden;
+      pointer-events: none; display: none; }
+    #power i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #9be564, #ffe14d 60%, #ff5b3a); }
+
+    #toast { position: fixed; left: 50%; top: 30%; transform: translate(-50%, -50%); font-size: 26px; font-weight: 800;
+      text-shadow: 0 2px 8px rgba(0,0,0,.8); pointer-events: none; opacity: 0; transition: opacity .25s; text-align: center; }
+    #toast.on { opacity: 1; }
+
+    #stick { position: fixed; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%;
+      background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.4); pointer-events: none; display: none; }
+    #stick i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px;
+      border-radius: 50%; background: rgba(255,255,255,.75); }
+    #marker { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%;
+      border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.4); pointer-events: none; display: none;
+      animation: pulse 1s infinite; }
+    #marker span { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 700;
+      white-space: nowrap; text-shadow: 0 1px 3px #000; }
+    @keyframes pulse { 50% { transform: scale(1.25); } }
+
+    .overlay { position: fixed; inset: 0; background: rgba(10, 30, 16, .93); display: none; align-items: center;
+      justify-content: center; padding: 16px; overflow-y: auto; }
+    .overlay.on { display: flex; }
+    .card { width: min(420px, 100%); text-align: center; }
+    h1 { font-size: 38px; margin: 0 0 4px; letter-spacing: -.02em; }
+    h2 { font-size: 26px; margin: 0 0 6px; }
+    .sub { opacity: .8; margin: 0 0 16px; }
+    .facts { display: flex; gap: 8px; justify-content: center; margin: 0 0 16px; flex-wrap: wrap; }
+    .how { text-align: left; background: rgba(255,255,255,.08); border-radius: 14px; padding: 12px 16px; margin: 0 0 18px;
+      font-size: 15px; line-height: 1.5; }
+    .how p { margin: 4px 0; }
+    button, input { font: inherit; }
+    .btn { display: block; width: 100%; border: 0; border-radius: 14px; padding: 15px; font-size: 18px; font-weight: 800;
+      color: #10230f; background: #ffe14d; cursor: pointer; margin-top: 10px; }
+    .btn.alt { background: rgba(255,255,255,.14); color: #fff; font-weight: 600; font-size: 16px; }
+    .big { font-size: 52px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 6px 0 2px; }
+    .row { display: flex; gap: 8px; margin-top: 12px; }
+    .row input { flex: 1; min-width: 0; border-radius: 12px; border: 0; padding: 13px; font-size: 17px; text-align: center;
+      -webkit-user-select: text; user-select: text; }
+    .row .btn { width: auto; margin: 0; padding: 13px 18px; }
+    ol#board { list-style: none; padding: 0; margin: 14px 0 0; text-align: left; }
+    ol#board li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px;
+      font-variant-numeric: tabular-nums; }
+    ol#board li:nth-child(odd) { background: rgba(255,255,255,.07); }
+    ol#board li.me { outline: 2px solid #ffe14d; }
+    .note { font-size: 12px; opacity: .65; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="hud">
+    <div class="chip"><small>Time</small><b id="time">0:00.0</b> <span class="pen" id="pen"></span></div>
+    <div class="chip"><small>Strokes</small><b id="strokes">0</b></div>
+    <div class="chip"><small>To pin</small><b id="pin">0</b></div>
+    <div class="chip"><small>Wind</small><b><span id="windArrow">➤</span> <span id="windMph">0</span></b></div>
+  </div>
+  <div id="power"><i></i></div>
+  <div id="hint"></div>
+  <div id="toast"></div>
+  <div id="stick"><i></i></div>
+  <div id="marker"><span></span></div>
+
+  <div class="overlay on" id="title">
+    <div class="card">
+      <h1>⛳ The Daily Putt</h1>
+      <p class="sub" id="holeLine"></p>
+      <div class="facts" id="facts"></div>
+      <div class="how">
+        <p><b>Swing:</b> drag back like a slingshot and let go.</p>
+        <p><b>Drive:</b> hold and drag to steer the cart to your ball.</p>
+        <p><b>Score:</b> your time. Water or out of bounds adds 10 seconds.</p>
+      </div>
+      <p class="sub" id="already" hidden></p>
+      <button class="btn" id="start">Tee off</button>
+      <button class="btn alt" id="random" hidden>Practice on a random hole</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="end">
+    <div class="card">
+      <h2 id="endTitle">In the hole!</h2>
+      <div class="big" id="endScore"></div>
+      <p class="sub" id="endDetail"></p>
+      <div class="row" id="nameRow">
+        <input id="name" maxlength="12" placeholder="Name or initials" autocomplete="off" autocapitalize="characters">
+        <button class="btn" id="save">Post</button>
+      </div>
+      <ol id="board"></ol>
+      <button class="btn alt" id="share">Share my time</button>
+      <button class="btn alt" id="again">Play again (practice)</button>
+      <button class="btn alt" id="random2">Practice on a random hole</button>
+      <p class="note" id="next"></p>
+      <p class="note" id="boardNote">Times are saved on this device for now. The shared leaderboard is coming.</p>
+    </div>
+  </div>
+
+  <script type="module" src="game.js?v=9"></script>
+</body>
+</html>
