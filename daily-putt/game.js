@@ -324,18 +324,22 @@ const Leaderboard = {
     try {
       const r = await this.call("scores", { method: "POST", headers: { Prefer: "return=minimal" },
         body: JSON.stringify({ day: date, name: entry.name, score: Math.round(entry.score * 10) / 10, strokes: entry.strokes, penalties: entry.pen, device: deviceId }) });
-      return r.ok || r.status === 409; // 409: this device already has a time for today
+      return r.ok;
     } catch { return false; }
   },
   async top(date) {
     const mine = this.local(date);
     if (this.online) {
       try {
-        const r = await this.call(`scores?day=eq.${encodeURIComponent(date)}&select=name,score,strokes,device&order=score.asc,created_at.asc&limit=25`);
-        if (r.ok) return (await r.json()).map((e) => ({ name: e.name, score: e.score, strokes: e.strokes, at: e.device === deviceId ? (mine[0] || {}).at : null }));
+        const r = await this.call(`scores?day=eq.${encodeURIComponent(date)}&select=name,score,strokes,device&order=score.asc,created_at.asc&limit=400`);
+        if (r.ok) {
+          const seen = new Set(), myAt = (store.get("dailyputt:official:" + date, null) || {}).at; // rows come best first: keep each player's first
+          return (await r.json()).filter((e) => !seen.has(e.device) && seen.add(e.device)).slice(0, 25)
+            .map((e) => ({ name: e.name, score: e.score, strokes: e.strokes, at: e.device === deviceId ? myAt : null }));
+        }
       } catch { /* fall back to this device's times */ }
     }
-    return mine.sort((a, b) => a.score - b.score).slice(0, 25);
+    return mine.sort((a, b) => a.score - b.score).slice(0, 1); // offline: just this device's best
   },
 };
 
@@ -1380,21 +1384,24 @@ function finish() {
   Object.assign(G.ball, { x: H.cup.x, y: H.cup.y, vx: 0, vy: 0, air: false });
   setHint("");
   const score = G.time + G.penalties;
-  const official = !G.practice && !store.get(officialKey(), null);
-  lastEntry = { name: "", score, time: G.time, pen: G.penalties, strokes: G.strokes, official, at: Date.now() };
-  if (official) store.set(officialKey(), lastEntry);
-  $("endTitle").textContent = official ? "In the hole!" : "In the hole! (practice)";
+  // Every round on today's hole counts, and your best time of the day is the one on the board.
+  const best = store.get(officialKey(), null), counts = !G.practice, isBest = counts && (!best || score < best.score);
+  const name = store.get("dailyputt:name", "");
+  lastEntry = { name, score, time: G.time, pen: G.penalties, strokes: G.strokes, official: isBest, at: Date.now() };
+  if (isBest) store.set(officialKey(), lastEntry);
+  $("endTitle").textContent = !counts ? "In the hole! (practice)" : isBest && best ? "New best time!" : "In the hole!";
   $("endScore").textContent = fmt(score);
   $("endDetail").textContent = `${fmt(G.time)} on the clock` + (G.penalties ? `, plus ${G.penalties}s in penalties` : "") +
-    `. ${G.strokes} stroke${G.strokes === 1 ? "" : "s"}.`;
-  $("nameRow").style.display = official ? "flex" : "none";
-  $("name").value = store.get("dailyputt:name", "");
-  $("share").hidden = !official;
-  showBoard();
+    `. ${G.strokes} stroke${G.strokes === 1 ? "" : "s"}.` + (counts && !isBest ? ` Your best today is ${fmt(best.score)}.` : "");
+  $("nameRow").style.display = isBest && !name ? "flex" : "none"; // a name is asked for once, then remembered
+  $("name").value = name;
+  $("share").hidden = !counts;
+  if (isBest && name) Leaderboard.submit(G.date, lastEntry).then((sent) => { if (!sent) toast("Could not reach the leaderboard"); showBoard(lastEntry.at); });
+  else showBoard(isBest ? undefined : (best || {}).at);
   setTimeout(() => $("end").classList.add("on"), 700);
 }
 async function showBoard(meAt) {
-  const list = G.practice && G.seed !== G.date ? [] : await Leaderboard.top(G.date);
+  const list = G.practice ? [] : await Leaderboard.top(G.date);
   $("board").innerHTML = "";
   list.forEach((e, i) => {
     const li = document.createElement("li");
@@ -1432,8 +1439,9 @@ function begin(seed, practice) {
   enterAim();
 }
 if (Leaderboard.online) $("boardNote").hidden = true;
-$("start").onclick = () => begin(G.date, !!store.get(officialKey(), null));
-$("again").onclick = () => begin(G.date, true);
+// Only today's hole counts: a hole opened with ?date= or a random one is practice.
+$("start").onclick = () => begin(G.date, G.date !== nyDate());
+$("again").onclick = () => begin(G.date, G.date !== nyDate());
 const randomHole = () => begin("practice-" + Math.random().toString(36).slice(2, 8), true);
 $("random").onclick = randomHole; $("random2").onclick = randomHole;
 
@@ -1452,8 +1460,7 @@ function showTitle() {
   const done = store.get(officialKey(), null);
   if (done) {
     $("already").hidden = false;
-    $("already").textContent = `Your official time today: ${fmt(done.score)}. More rounds are practice.`;
-    $("start").textContent = "Practice today's hole";
+    $("already").textContent = `Your best time today: ${fmt(done.score)}. Play again to beat it.`;
     $("random").hidden = false;
   }
 }
@@ -1659,4 +1666,4 @@ showTitle();
 requestAnimationFrame(frame);
 
 // For testing and tuning from the browser console.
-window.__dp = { G, TUNE, cam, QUALITY, onBridge, simulate, generateHole, terrainAt, heightAt, hole: () => H, shoot };
+window.__dp = { finish, G, TUNE, cam, QUALITY, onBridge, simulate, generateHole, terrainAt, heightAt, hole: () => H, shoot };
