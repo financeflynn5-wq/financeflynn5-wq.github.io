@@ -302,7 +302,7 @@ const store = {
 };
 // The shared leaderboard lives in a small Supabase database. Paste its two values here
 // (daily-putt/LEADERBOARD.md has the steps). While they are empty, times stay on this device.
-const BOARD = { url: "", key: "" };
+const BOARD = { url: "https://glqdmfzjslzjmiabnrnj.supabase.co", key: "sb_publishable_HUWiNDZZxqFch-oI3Xp1ow_cH11MS8W" }; // both are public values
 const deviceId = (() => {
   let id = store.get("dailyputt:device", null);
   if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2)); store.set("dailyputt:device", id); }

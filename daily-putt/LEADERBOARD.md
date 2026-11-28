@@ -28,6 +28,8 @@ create index scores_day_score on public.scores (day, score);
 
 alter table public.scores enable row level security;
 
+grant select, insert on public.scores to anon;
+
 create policy "Anyone can read times" on public.scores
   for select using (true);
 
@@ -42,7 +44,7 @@ Players can read times and add one time per device for today's hole (New York da
 In Supabase open **Project Settings**, then **API** (or the **Connect** button). Copy:
 
 - the **Project URL**, which looks like `https://abcdefgh.supabase.co`
-- the **anon public** key (also called the publishable key)
+- the **publishable** key, which starts with `sb_publishable_` (older projects call it the **anon public** key)
 
 Both are meant to be public, so they are safe to put in the game. Never use the `service_role` or secret key.
 
