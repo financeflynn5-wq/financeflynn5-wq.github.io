@@ -21,8 +21,7 @@ create table public.scores (
   strokes int not null check (strokes between 1 and 60),
   penalties int not null default 0 check (penalties between 0 and 60),
   device text not null check (char_length(device) between 8 and 64),
-  created_at timestamptz not null default now(),
-  unique (day, device)
+  created_at timestamptz not null default now()
 );
 create index scores_day_score on public.scores (day, score);
 
@@ -37,7 +36,7 @@ create policy "Anyone can add a time for today" on public.scores
   for insert with check (day = (now() at time zone 'America/New_York')::date);
 ```
 
-Players can read times and add one time per device for today's hole (New York date). Nobody can change or delete a time from the game.
+Players can read times and add times for today's hole (New York date). The game posts a time only when it beats that player's best, and the board shows each player's best. Nobody can change or delete a time from the game.
 
 ## 3. Give the game the two values
 
@@ -57,4 +56,5 @@ const BOARD = { url: "https://abcdefgh.supabase.co", key: "your-anon-public-key"
 ## Good to know
 
 - There is no login, so a determined person could post a fake time. To remove one, open **Table Editor**, pick `scores` and delete the row.
-- "One official attempt per day" is enforced per device: the game remembers the first finished round, and the database refuses a second time from the same device for the same day.
+- Players can try as often as they like. Each device's best time of the day is the one shown.
+- If your table was created with the older one-attempt rule, run `alter table public.scores drop constraint if exists scores_day_device_key;` once.

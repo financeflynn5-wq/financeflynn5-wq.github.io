@@ -41,7 +41,7 @@ window.GAMES = [
     tagline: "One new golf hole every day. Fastest time wins.",
     description: [
       "Everyone gets the same par 4 each day, and a new one arrives at midnight Eastern. Swing, drive the cart to your ball and putt it in.",
-      "Your score is your time, plus 10 seconds for every ball in the water or out of bounds. The weather and wind change by the day. Your first finished round of the day is the one that counts.",
+      "Your score is your time, plus 10 seconds for every ball in the water or out of bounds. The weather and wind change by the day. Play as often as you like: your best time of the day goes on the leaderboard.",
     ],
     controls: "Drag back and let go to swing. Hold and drag to drive the cart, or use WASD or the arrow keys.",
     play: "https://financeflynn5-wq.github.io/daily-putt/",
